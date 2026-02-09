@@ -47,6 +47,31 @@ cargo run -p fag-cli -- captures --ext .mp4
 cargo run -p fag-cli -- watch --ext .mp4 --name vlc --interval 5
 ```
 
+### 5) 规则文件 + 多扩展名守护（推荐）
+
+```powershell
+# 先为每个扩展名 capture 一次（示例：.mp4/.mkv 都守 VLC）
+cargo run -p fag-cli -- capture-latest --ext .mp4 --name vlc
+cargo run -p fag-cli -- capture-latest --ext .mkv --name vlc
+
+# 写入规则文件（ext -> label）
+cargo run -p fag-cli -- rules add --ext .mp4 --name vlc
+cargo run -p fag-cli -- rules add --ext .mkv --name vlc
+
+# 查看规则
+cargo run -p fag-cli -- rules list
+
+# 一次性检查（exit code: 0=全 OK, 2=有篡改, 1=错误）
+cargo run -p fag-cli -- check
+
+# 多扩展名守护（Ctrl+C 停止）
+cargo run -p fag-cli -- watch-rules --interval 5
+```
+
 ## captures.json 在哪？
 
 默认写入：`%APPDATA%\\FileAssocGuard\\captures.json`（建议自行备份）。
+
+## rules.json 在哪？
+
+默认写入：`%APPDATA%\\FileAssocGuard\\rules.json`。
