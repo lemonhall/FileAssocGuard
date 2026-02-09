@@ -1,6 +1,9 @@
 extends Control
 
 const FAG_EXE := "res://bin/fag.exe"
+const POLL_SECS := 1.0
+const MAX_LOG_LINES_PER_TICK := 200
+const MAX_EVENT_ROWS := 500
 
 @onready var ext_edit: LineEdit = $VBox/Row/Ext
 @onready var name_edit: LineEdit = $VBox/Row/Name
@@ -25,6 +28,7 @@ var _log_offset: int = 0
 var _poll_timer: Timer
 var _events_root: TreeItem
 var _rules_items: Array[Dictionary] = []
+var _event_items: Array = []
 
 func _ready() -> void:
 	$VBox/Row2/BtnSysinfo.pressed.connect(_on_sysinfo)
@@ -52,7 +56,7 @@ func _ready() -> void:
 	_log_path = _default_log_path()
 	_init_log_offset()
 	_poll_timer = Timer.new()
-	_poll_timer.wait_time = 0.5
+	_poll_timer.wait_time = POLL_SECS
 	_poll_timer.one_shot = false
 	_poll_timer.timeout.connect(_on_poll)
 	add_child(_poll_timer)
@@ -128,7 +132,8 @@ func _on_stop_watch_rules() -> void:
 
 func _on_poll() -> void:
 	_update_watch_ui()
-	_tail_log()
+	if _is_watch_running() or tabs.current_tab == 2:
+		_tail_log()
 
 func _update_watch_ui() -> void:
 	var running := _is_watch_running()
@@ -145,7 +150,7 @@ func _tail_log() -> void:
 	if !FileAccess.file_exists(_log_path):
 		return
 
-	var f := FileAccess.open(_log_path, FileAccess.READ)
+	var f = FileAccess.open(_log_path, FileAccess.READ)
 	if f == null:
 		return
 
@@ -153,15 +158,14 @@ func _tail_log() -> void:
 	if _log_offset > size:
 		_log_offset = 0
 	f.seek(_log_offset)
-	var text := f.get_as_text()
-	_log_offset = f.get_position()
-	if text.is_empty():
-		return
-	for line in text.split("\n", false):
-		if line.strip_edges().is_empty():
+	var processed := 0
+	while processed < MAX_LOG_LINES_PER_TICK and !f.eof_reached():
+		var line := f.get_line().strip_edges()
+		_log_offset = f.get_position()
+		if line.is_empty():
 			continue
-		_write("[log] " + line)
 		_append_event_line(line)
+		processed += 1
 
 func _default_log_path() -> String:
 	var appdata := OS.get_environment("APPDATA")
@@ -176,13 +180,13 @@ func _init_log_offset() -> void:
 	if !FileAccess.file_exists(_log_path):
 		_log_offset = 0
 		return
-	var f := FileAccess.open(_log_path, FileAccess.READ)
+	var f = FileAccess.open(_log_path, FileAccess.READ)
 	if f == null:
 		_log_offset = 0
 		return
 	var size := f.get_length()
 	# Avoid loading huge history into the UI on startup.
-	var max_bytes := 1024 * 1024
+	var max_bytes := 64 * 1024
 	_log_offset = int(max(size - max_bytes, 0))
 
 func _run_and_show(args: Array[String]) -> void:
@@ -277,6 +281,7 @@ func _remove_selected_rule() -> void:
 func _clear_events() -> void:
 	events_tree.clear()
 	_events_root = events_tree.create_item()
+	_event_items.clear()
 	_write("Events cleared.")
 
 func _append_event_line(line: String) -> void:
@@ -298,6 +303,12 @@ func _append_event_line(line: String) -> void:
 	item.set_text(3, status)
 	item.set_text(4, effective)
 	item.set_text(5, target)
+	_event_items.append(item)
+	if _event_items.size() > MAX_EVENT_ROWS:
+		var old = _event_items[0]
+		_event_items.remove_at(0)
+		if old != null:
+			old.free()
 
 func _format_time(ms: int) -> String:
 	if ms <= 0:
