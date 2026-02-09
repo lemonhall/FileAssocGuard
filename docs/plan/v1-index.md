@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | M1 | `docs/plan/v1-m1-workspace-registry-read.md` | `cargo test` 全绿；`fag.exe read --ext .mp4` 可读出 `ProgId/Hash/LastWriteTime`（或明确无值） | `cargo test`; `cargo run -p fag-cli -- read --ext .mp4` | done |
 | M2 | `docs/plan/v1-m2-hash-algorithm.md` | Hash 算法通过已知向量单测；在真实系统数据上可复算出一致 Hash | `cargo test -p fag-core hash::`（含向量）；附带 `tools/` 或测试辅助读值 | done |
-| M3 | `docs/plan/v1-m3-registry-write-restore.md` | `restore` 可写回系统认可的 `ProgId/Hash`（跨分钟自动重试） | `cargo run -p fag-cli -- restore`; 双击/设置验证 + 读取回查 | blocked (HashVersion=1) |
+| M3 | `docs/plan/v1-m3-registry-write-restore.md` | `restore` 可写回系统认可的 `ProgId/Hash`（跨分钟自动重试）；当 `HashVersion=1` 时可选使用 SetUserFTA 后端完成写回 | `cargo run -p fag-cli -- restore`; 双击/设置验证 + 读取回查 | done (via SetUserFTA on HashVersion=1) |
 | M4 | `docs/plan/v1-m4-cli-config-rules.md` | `snapshot/list/add/remove/check` 可用；JSON 持久化可回归 | `cargo run -p fag-cli -- snapshot ...`; `check` exit code 语义固定 | todo |
 | M5 | `docs/plan/v1-m5-watch-notify.md` | `watch` 轮询+自动恢复；可选 Toast 通知；事件落日志 | `cargo run -p fag-cli -- watch --interval 5`; 检查日志输出 | todo |
 | M6 | `docs/plan/v1-m6-sysinfo-detection.md` | `sysinfo` 输出 SID/HashVersion/UserChoiceLatest/UCPD，且指引可执行 | `cargo run -p fag-cli -- sysinfo` | todo |
