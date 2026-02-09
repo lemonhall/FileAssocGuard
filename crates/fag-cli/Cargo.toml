@@ -1,0 +1,7 @@
+[package]
+name = "fag-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fag-core = { path = "../fag-core" }
