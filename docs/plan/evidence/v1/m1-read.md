@@ -1,5 +1,9 @@
 # v1 M1 Evidence — registry read
 
+## PRD Trace
+
+- `REQ-010`
+
 ## Tests
 
 Run: `cargo test -p fag-core`  

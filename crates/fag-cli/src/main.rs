@@ -52,6 +52,90 @@ fn main() {
                 }
             }
         }
+        "progids" => {
+            let mut ext: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    _ => {}
+                }
+            }
+
+            let Some(ext) = ext else {
+                eprintln!("usage: fag progids --ext <.ext>");
+                std::process::exit(2);
+            };
+
+            match fag_core::registry::list_open_with_progids(&ext) {
+                Ok(progids) => {
+                    let joined = progids
+                        .into_iter()
+                        .map(|s| json_string(&s))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    println!("{{\"ext\":{},\"progids\":[{}]}}", json_string(&ext), joined);
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    eprintln!("progids failed: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        "restore" => {
+            let mut ext: Option<String> = None;
+            let mut progid: Option<String> = None;
+            let mut to: Option<String> = None;
+
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    "--progid" => progid = args.next(),
+                    "--to" => to = args.next(),
+                    _ => {}
+                }
+            }
+
+            let Some(ext) = ext else {
+                eprintln!(
+                    "usage: fag restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
+                );
+                std::process::exit(2);
+            };
+
+            let progid = match (progid, to) {
+                (Some(p), None) => p,
+                (None, Some(hint)) => match pick_progid_by_hint(&ext, &hint) {
+                    Ok(p) => p,
+                    Err(msg) => {
+                        eprintln!("{}", msg);
+                        std::process::exit(1);
+                    }
+                },
+                _ => {
+                    eprintln!("usage: fag restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)");
+                    std::process::exit(2);
+                }
+            };
+
+            match fag_core::registry::set_user_choice(&ext, &progid) {
+                Ok(r) => {
+                    println!(
+                        "{{\"ext\":{},\"status\":\"RESTORED\",\"prog_id\":{},\"regdate_hex\":{},\"hash\":{},\"attempts\":{}}}",
+                        json_string(&r.ext),
+                        json_string(&r.prog_id),
+                        json_string(&r.regdate_hex),
+                        json_string(&r.hash),
+                        r.attempts
+                    );
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    eprintln!("restore failed: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
             eprintln!("unknown command: {}", command);
             std::process::exit(2);
@@ -80,3 +164,30 @@ fn json_string(s: &str) -> String {
     out
 }
 
+fn pick_progid_by_hint(ext: &str, hint: &str) -> Result<String, String> {
+    let hint = hint.trim().to_ascii_lowercase();
+    if hint.is_empty() {
+        return Err("restore --to requires a non-empty hint".to_string());
+    }
+
+    let progids = fag_core::registry::list_open_with_progids(ext).map_err(|e| e.to_string())?;
+    if progids.is_empty() {
+        return Err(format!(
+            "no ProgId candidates found for {} (try setting the default app once via UI, then rerun `fag progids --ext {}`)",
+            ext, ext
+        ));
+    }
+
+    if let Some(p) = progids
+        .iter()
+        .find(|p| p.to_ascii_lowercase().contains(&hint))
+    {
+        return Ok(p.clone());
+    }
+
+    let preview = progids.into_iter().take(30).collect::<Vec<_>>().join(", ");
+    Err(format!(
+        "no ProgId matched hint '{}'. candidates (first 30): {}. Use `fag restore --ext {} --progid <one-of-these>`",
+        hint, preview, ext
+    ))
+}

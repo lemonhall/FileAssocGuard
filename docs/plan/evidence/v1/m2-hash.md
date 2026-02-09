@@ -1,5 +1,9 @@
 # v1 M2 Evidence — UserChoice Hash (legacy)
 
+## PRD Trace
+
+- `REQ-014`（hash 部分）
+
 ## Tests
 
 Run: `cargo test -p fag-core hash::`  

@@ -86,7 +86,8 @@ fn sub_1(data: &[u8], md5: [u8; 16]) -> [u8; 8] {
     while v8 != 0 {
         let v11 = dword_data[v6].wrapping_add(result);
         v6 += 2;
-        let t1 = v10.wrapping_mul(v11)
+        let t1 = v10
+            .wrapping_mul(v11)
             .wrapping_sub(0x10FA9605u32.wrapping_mul(v11 >> 16));
         let v12 = 0x79F8A395u32
             .wrapping_mul(t1)
@@ -125,7 +126,8 @@ fn sub_1(data: &[u8], md5: [u8; 16]) -> [u8; 8] {
             .wrapping_add(0x28DBA395u32.wrapping_mul(v16))
             .wrapping_sub(
                 0x3C101569u32.wrapping_mul(
-                    (0x689B6B9Fu32.wrapping_mul(v16 >> 16)
+                    (0x689B6B9Fu32
+                        .wrapping_mul(v16 >> 16)
                         .wrapping_add(0x79F8A395u32.wrapping_mul(v16)))
                         >> 16,
                 ),
@@ -179,15 +181,14 @@ fn sub_2(data: &[u8], md5: [u8; 16]) -> [u8; 8] {
             .wrapping_mul(v23)
             .wrapping_sub(0x30674EEFu32.wrapping_mul(v21.wrapping_mul(left) >> 16));
         let v10 = v9 >> 16;
-        let v11 = 0xE9B30000u32
-            .wrapping_mul(v10)
-            .wrapping_add(
-                0x12CEB96Du32.wrapping_mul(
-                    (0x5B9F0000u32.wrapping_mul(v9)
-                        .wrapping_sub(0x78F7A461u32.wrapping_mul(v10)))
-                        >> 16,
-                ),
-            );
+        let v11 = 0xE9B30000u32.wrapping_mul(v10).wrapping_add(
+            0x12CEB96Du32.wrapping_mul(
+                (0x5B9F0000u32
+                    .wrapping_mul(v9)
+                    .wrapping_sub(0x78F7A461u32.wrapping_mul(v10)))
+                    >> 16,
+            ),
+        );
         let v12 = 0x1D830000u32
             .wrapping_mul(v11)
             .wrapping_add(0x257E1D83u32.wrapping_mul(v11 >> 16));
@@ -201,15 +202,14 @@ fn sub_2(data: &[u8], md5: [u8; 16]) -> [u8; 8] {
             .wrapping_mul(t1)
             .wrapping_sub(0x2C7C6901u32.wrapping_mul(v13)))
             >> 16;
-        v5 = 0xF2310000u32
-            .wrapping_mul(v14)
-            .wrapping_sub(
-                0x405B6097u32.wrapping_mul(
-                    (0x7C932B89u32.wrapping_mul(v14)
-                        .wrapping_sub(0x5C890000u32.wrapping_mul(v13)))
-                        >> 16,
-                ),
-            );
+        v5 = 0xF2310000u32.wrapping_mul(v14).wrapping_sub(
+            0x405B6097u32.wrapping_mul(
+                (0x7C932B89u32
+                    .wrapping_mul(v14)
+                    .wrapping_sub(0x5C890000u32.wrapping_mul(v13)))
+                    >> 16,
+            ),
+        );
         v7 = v7.wrapping_add(v5).wrapping_add(v12);
         v8 = v8.wrapping_sub(1);
     }
@@ -232,7 +232,12 @@ fn sub_2(data: &[u8], md5: [u8; 16]) -> [u8; 8] {
             .wrapping_sub(0x78F7A461u32.wrapping_mul(v15 >> 16)))
             >> 16;
         let v18 = 0x257E1D83u32
-            .wrapping_mul((0xE9B30000u32.wrapping_mul(v16).wrapping_add(0x12CEB96Du32.wrapping_mul(v17))) >> 16)
+            .wrapping_mul(
+                (0xE9B30000u32
+                    .wrapping_mul(v16)
+                    .wrapping_add(0x12CEB96Du32.wrapping_mul(v17)))
+                    >> 16,
+            )
             .wrapping_add(0x3BC70000u32.wrapping_mul(v17));
 
         let t1 = 0x16F50000u32
@@ -244,15 +249,14 @@ fn sub_2(data: &[u8], md5: [u8; 16]) -> [u8; 8] {
             .wrapping_mul(t1)
             .wrapping_sub(0x2C7C6901u32.wrapping_mul(v19)))
             >> 16;
-        v5 = 0xF2310000u32
-            .wrapping_mul(v20)
-            .wrapping_sub(
-                0x405B6097u32.wrapping_mul(
-                    (0x7C932B89u32.wrapping_mul(v20)
-                        .wrapping_sub(0x5C890000u32.wrapping_mul(v19)))
-                        >> 16,
-                ),
-            );
+        v5 = 0xF2310000u32.wrapping_mul(v20).wrapping_sub(
+            0x405B6097u32.wrapping_mul(
+                (0x7C932B89u32
+                    .wrapping_mul(v20)
+                    .wrapping_sub(0x5C890000u32.wrapping_mul(v19)))
+                    >> 16,
+            ),
+        );
         v7 = v7.wrapping_add(v5).wrapping_add(v18);
     }
 
