@@ -579,8 +579,26 @@ fn main() {
                 log_path.to_string_lossy()
             );
 
+            #[derive(Debug, Copy, Clone)]
+            struct BackoffState {
+                failures: u32,
+                next_allowed_ms: u128,
+            }
+
+            fn backoff_seconds(failures: u32) -> u64 {
+                if failures == 0 {
+                    return 0;
+                }
+                let shift = failures.saturating_sub(1).min(4);
+                let secs = 30u64.saturating_mul(1u64 << shift);
+                secs.min(600)
+            }
+
+            let mut backoff: std::collections::BTreeMap<String, BackoffState> =
+                std::collections::BTreeMap::new();
             let interval = std::time::Duration::from_secs(interval_secs);
             loop {
+                let now_ms = unix_time_ms();
                 let rules_items = rules::list_rules(&rules_path).unwrap_or_default();
                 if rules_items.is_empty() {
                     eprintln!("watch-rules: no rules found");
@@ -589,6 +607,7 @@ fn main() {
                 }
 
                 for (ext, label) in rules_items.iter() {
+                    let key = format!("{}|{}", ext, label);
                     let cap = match captures::get_latest_capture(&cap_path, ext, label) {
                         Ok(Some(c)) => c,
                         _ => {
@@ -600,11 +619,18 @@ fn main() {
                         }
                     };
 
+                    if let Some(st) = backoff.get(&key) {
+                        if now_ms < st.next_allowed_ms {
+                            continue;
+                        }
+                    }
+
                     let effective = fag_core::registry::effective_progid_for_ext(ext)
                         .ok()
                         .flatten();
                     let ok = effective.as_deref() == Some(cap.prog_id.as_str());
                     if ok {
+                        backoff.remove(&key);
                         let line = format!(
                             "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
                             unix_time_ms(),
@@ -643,16 +669,40 @@ fn main() {
                     let after = fag_core::registry::effective_progid_for_ext(ext)
                         .ok()
                         .flatten();
-                    let line = format!(
-                        "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
-                        unix_time_ms(),
-                        json_string(ext),
-                        json_string(label),
-                        after.map(|s| json_string(&s)).unwrap_or("null".into()),
-                        json_string(&cap.prog_id)
-                    );
-                    println!("{}", line);
-                    let _ = logging::append_line(&log_path, &line);
+                    if after.as_deref() == Some(cap.prog_id.as_str()) {
+                        backoff.remove(&key);
+                        let line = format!(
+                            "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
+                            unix_time_ms(),
+                            json_string(ext),
+                            json_string(label),
+                            after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                            json_string(&cap.prog_id)
+                        );
+                        println!("{}", line);
+                        let _ = logging::append_line(&log_path, &line);
+                    } else {
+                        let failures = backoff.get(&key).map(|s| s.failures).unwrap_or(0) + 1;
+                        let secs = backoff_seconds(failures);
+                        backoff.insert(
+                            key.clone(),
+                            BackoffState {
+                                failures,
+                                next_allowed_ms: now_ms.saturating_add(u128::from(secs) * 1000),
+                            },
+                        );
+                        let line = format!(
+                            "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"REJECTED\",\"effective_progid\":{},\"target_progid\":{},\"backoff_seconds\":{},\"hint\":\"re-capture: set default app in Windows Settings, then fag capture-latest\"}}",
+                            unix_time_ms(),
+                            json_string(ext),
+                            json_string(label),
+                            after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                            json_string(&cap.prog_id),
+                            secs
+                        );
+                        println!("{}", line);
+                        let _ = logging::append_line(&log_path, &line);
+                    }
                 }
 
                 std::thread::sleep(interval);
@@ -777,8 +827,14 @@ fn main() {
             );
 
             let interval = std::time::Duration::from_secs(interval_secs);
+            let mut failures: u32 = 0;
+            let mut next_allowed_ms: u128 = 0;
             loop {
                 let now_ms = unix_time_ms();
+                if next_allowed_ms != 0 && now_ms < next_allowed_ms {
+                    std::thread::sleep(interval);
+                    continue;
+                }
                 let effective = match fag_core::registry::effective_progid_for_ext(&ext) {
                     Ok(v) => v,
                     Err(err) => {
@@ -789,6 +845,8 @@ fn main() {
 
                 let needs_fix = effective.as_deref() != Some(target.as_str());
                 if !needs_fix {
+                    failures = 0;
+                    next_allowed_ms = 0;
                     let line = format!(
                         "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
                         now_ms,
@@ -821,15 +879,34 @@ fn main() {
                             let after = fag_core::registry::effective_progid_for_ext(&ext)
                                 .ok()
                                 .flatten();
-                            let line = format!(
-                                "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
-                                unix_time_ms(),
-                                json_string(&ext),
-                                after.map(|s| json_string(&s)).unwrap_or("null".into()),
-                                json_string(&target)
-                            );
-                            println!("{}", line);
-                            let _ = logging::append_line(&log_path, &line);
+                            if after.as_deref() == Some(target.as_str()) {
+                                failures = 0;
+                                next_allowed_ms = 0;
+                                let line = format!(
+                                    "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
+                                    unix_time_ms(),
+                                    json_string(&ext),
+                                    after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                    json_string(&target)
+                                );
+                                println!("{}", line);
+                                let _ = logging::append_line(&log_path, &line);
+                            } else {
+                                failures += 1;
+                                let shift = failures.saturating_sub(1).min(4);
+                                let secs = (30u64.saturating_mul(1u64 << shift)).min(600);
+                                next_allowed_ms = now_ms.saturating_add(u128::from(secs) * 1000);
+                                let line = format!(
+                                    "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"REJECTED\",\"effective_progid\":{},\"target_progid\":{},\"backoff_seconds\":{},\"hint\":\"re-capture: set default app in Windows Settings, then fag capture-latest\"}}",
+                                    unix_time_ms(),
+                                    json_string(&ext),
+                                    after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                    json_string(&target),
+                                    secs
+                                );
+                                println!("{}", line);
+                                let _ = logging::append_line(&log_path, &line);
+                            }
                         }
                         Err(err) => {
                             eprintln!("watch apply failed: {}", err);
