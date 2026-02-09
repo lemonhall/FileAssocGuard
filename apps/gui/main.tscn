@@ -82,8 +82,43 @@ disabled = true
 size_flags_horizontal = 3
 text = "stopped"
 
-[node name="Output" type="TextEdit" parent="VBox"]
+[node name="Tabs" type="TabContainer" parent="VBox"]
+size_flags_vertical = 3
+
+[node name="OutputTab" type="VBoxContainer" parent="VBox/Tabs"]
+
+[node name="Output" type="TextEdit" parent="VBox/Tabs/OutputTab"]
 size_flags_vertical = 3
 placeholder_text = "Output..."
 wrap_mode = 1
 editable = false
+
+[node name="RulesTab" type="VBoxContainer" parent="VBox/Tabs"]
+
+[node name="RulesRow" type="HBoxContainer" parent="VBox/Tabs/RulesTab"]
+
+[node name="BtnRefreshRules" type="Button" parent="VBox/Tabs/RulesTab/RulesRow"]
+text = "Refresh"
+
+[node name="BtnRemoveSelectedRule" type="Button" parent="VBox/Tabs/RulesTab/RulesRow"]
+text = "Remove selected"
+
+[node name="RulesPath" type="Label" parent="VBox/Tabs/RulesTab/RulesRow"]
+size_flags_horizontal = 3
+text = ""
+
+[node name="RulesList" type="ItemList" parent="VBox/Tabs/RulesTab"]
+size_flags_vertical = 3
+
+[node name="EventsTab" type="VBoxContainer" parent="VBox/Tabs"]
+
+[node name="EventsRow" type="HBoxContainer" parent="VBox/Tabs/EventsTab"]
+
+[node name="BtnClearEvents" type="Button" parent="VBox/Tabs/EventsTab/EventsRow"]
+text = "Clear"
+
+[node name="EventsTree" type="Tree" parent="VBox/Tabs/EventsTab"]
+size_flags_vertical = 3
+columns = 6
+column_titles_visible = true
+column_titles = PackedStringArray("Time", "Ext", "Name", "Status", "Effective", "Target")
