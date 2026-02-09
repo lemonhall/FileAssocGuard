@@ -40,6 +40,13 @@ cargo run -p fag-cli -- apply-latest --ext .mp4 --name potplayer
 cargo run -p fag-cli -- captures --ext .mp4
 ```
 
+### 4) 守护（只守 `.mp4`，最快能用）
+
+```powershell
+# 每 5 秒检查一次，如果被篡改就自动 apply 回去（Ctrl+C 停止）
+cargo run -p fag-cli -- watch --ext .mp4 --name vlc --interval 5
+```
+
 ## captures.json 在哪？
 
 默认写入：`%APPDATA%\\FileAssocGuard\\captures.json`（建议自行备份）。

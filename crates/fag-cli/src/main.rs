@@ -4,7 +4,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
         eprintln!(
-            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
+            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  watch --ext <.ext> --name <label> [--interval <seconds>]\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
         );
         std::process::exit(2);
     };
@@ -355,6 +355,139 @@ fn main() {
             );
             std::process::exit(0);
         }
+        "watch" => {
+            let mut ext: Option<String> = None;
+            let mut name: Option<String> = None;
+            let mut interval_secs: u64 = 5;
+
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    "--name" => name = args.next(),
+                    "--interval" => {
+                        let Some(v) = args.next() else {
+                            eprintln!(
+                                "usage: fag watch --ext <.ext> --name <label> [--interval <seconds>]"
+                            );
+                            std::process::exit(2);
+                        };
+                        interval_secs = match v.parse::<u64>() {
+                            Ok(n) if n > 0 => n,
+                            _ => {
+                                eprintln!(
+                                    "watch failed: --interval must be a positive integer (seconds)"
+                                );
+                                std::process::exit(2);
+                            }
+                        };
+                    }
+                    _ => {}
+                }
+            }
+
+            let (Some(ext_raw), Some(name_raw)) = (ext, name) else {
+                eprintln!("usage: fag watch --ext <.ext> --name <label> [--interval <seconds>]");
+                std::process::exit(2);
+            };
+
+            let ext = match normalize_ext_for_store(&ext_raw) {
+                Ok(e) => e,
+                Err(msg) => {
+                    eprintln!("watch failed: {}", msg);
+                    std::process::exit(2);
+                }
+            };
+            let label = name_raw.trim().to_ascii_lowercase();
+            if label.is_empty() {
+                eprintln!("watch failed: --name is empty");
+                std::process::exit(2);
+            }
+
+            let path = captures::default_store_path();
+            let cap = match captures::get_latest_capture(&path, &ext, &label) {
+                Ok(Some(c)) => c,
+                Ok(None) => {
+                    eprintln!(
+                        "watch failed: no capture found for ext={} name={}. Run: fag capture-latest --ext {} --name {}",
+                        ext, label, ext, label
+                    );
+                    std::process::exit(1);
+                }
+                Err(err) => {
+                    eprintln!("watch failed: store read error: {}", err);
+                    std::process::exit(1);
+                }
+            };
+
+            let target = cap.prog_id.clone();
+            eprintln!(
+                "watching ext={} target={} label={} interval={}s store={} (Ctrl+C to stop)",
+                ext,
+                target,
+                label,
+                interval_secs,
+                path.to_string_lossy()
+            );
+
+            let interval = std::time::Duration::from_secs(interval_secs);
+            loop {
+                let now_ms = unix_time_ms();
+                let effective = match fag_core::registry::effective_progid_for_ext(&ext) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        eprintln!("warning: effective progid query failed: {}", err);
+                        None
+                    }
+                };
+
+                let needs_fix = effective.as_deref() != Some(target.as_str());
+                if !needs_fix {
+                    println!(
+                        "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
+                        now_ms,
+                        json_string(&ext),
+                        effective
+                            .map(|s| json_string(&s))
+                            .unwrap_or("null".into()),
+                        json_string(&target)
+                    );
+                } else {
+                    println!(
+                        "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{}}}",
+                        now_ms,
+                        json_string(&ext),
+                        effective
+                            .map(|s| json_string(&s))
+                            .unwrap_or("null".into()),
+                        json_string(&target)
+                    );
+
+                    match fag_core::registry::set_user_choice_latest_replay(
+                        &ext,
+                        &cap.prog_id,
+                        &cap.hash,
+                    ) {
+                        Ok(()) => {
+                            let after = fag_core::registry::effective_progid_for_ext(&ext)
+                                .ok()
+                                .flatten();
+                            println!(
+                                "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
+                                unix_time_ms(),
+                                json_string(&ext),
+                                after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                json_string(&target)
+                            );
+                        }
+                        Err(err) => {
+                            eprintln!("watch apply failed: {}", err);
+                        }
+                    }
+                }
+
+                std::thread::sleep(interval);
+            }
+        }
         "restore" => {
             let mut ext: Option<String> = None;
             let mut progid: Option<String> = None;
@@ -466,6 +599,13 @@ fn normalize_ext_for_store(ext: &str) -> Result<String, String> {
         return Err("invalid extension".to_string());
     }
     Ok(format!(".{}", ext))
+}
+
+fn unix_time_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
 }
 
 fn pick_progid_by_hint(ext: &str, hint: &str) -> Result<String, String> {
