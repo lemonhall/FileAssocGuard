@@ -6,6 +6,13 @@
 
 请确认你在仓库根目录运行，且当前分支包含 Rust workspace（`Cargo.toml` 在根目录）。
 
+## Release 构建
+
+```powershell
+cargo build --release
+# 产物：target\\release\\fag.exe
+```
+
 ## 命令速查
 
 ### 1) 查看当前 `.mp4` 关联（UserChoice）
@@ -75,3 +82,7 @@ cargo run -p fag-cli -- watch-rules --interval 5
 ## rules.json 在哪？
 
 默认写入：`%APPDATA%\\FileAssocGuard\\rules.json`。
+
+## guard.log 在哪？
+
+默认写入：`%APPDATA%\\FileAssocGuard\\guard.log`（watch/check 检测到篡改时会追加 JSON lines）。

@@ -1,11 +1,12 @@
 mod captures;
+mod logging;
 mod rules;
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
         eprintln!(
-            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  rules <list|add|remove> ...\n  check\n  watch-rules [--interval <seconds>]\n  watch --ext <.ext> --name <label> [--interval <seconds>]\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
+            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  rules <list|add|remove> ...\n  check\n  watch-rules [--interval <seconds>]\n  watch --ext <.ext> --name <label> [--interval <seconds>]\n  sysinfo\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
         );
         std::process::exit(2);
     };
@@ -501,6 +502,7 @@ fn main() {
             }
 
             let cap_path = captures::default_store_path();
+            let log_path = logging::default_log_path();
             let mut has_tampered = false;
             for (ext, label) in rules_items {
                 let cap = match captures::get_latest_capture(&cap_path, &ext, &label) {
@@ -529,7 +531,7 @@ fn main() {
                 if !ok {
                     has_tampered = true;
                 }
-                println!(
+                let line = format!(
                     "{{\"ext\":{},\"name\":{},\"status\":{},\"effective_progid\":{},\"target_progid\":{}}}",
                     json_string(&ext),
                     json_string(&label),
@@ -537,6 +539,10 @@ fn main() {
                     effective.map(|s| json_string(&s)).unwrap_or("null".into()),
                     json_string(&cap.prog_id)
                 );
+                println!("{}", line);
+                if !ok {
+                    let _ = logging::append_line(&log_path, &line);
+                }
             }
 
             std::process::exit(if has_tampered { 2 } else { 0 });
@@ -564,11 +570,13 @@ fn main() {
 
             let rules_path = rules::default_rules_path();
             let cap_path = captures::default_store_path();
+            let log_path = logging::default_log_path();
             eprintln!(
-                "watch-rules interval={}s rules={} captures={} (Ctrl+C to stop)",
+                "watch-rules interval={}s rules={} captures={} log={} (Ctrl+C to stop)",
                 interval_secs,
                 rules_path.to_string_lossy(),
-                cap_path.to_string_lossy()
+                cap_path.to_string_lossy(),
+                log_path.to_string_lossy()
             );
 
             let interval = std::time::Duration::from_secs(interval_secs);
@@ -597,7 +605,7 @@ fn main() {
                         .flatten();
                     let ok = effective.as_deref() == Some(cap.prog_id.as_str());
                     if ok {
-                        println!(
+                        let line = format!(
                             "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
                             unix_time_ms(),
                             json_string(ext),
@@ -605,10 +613,11 @@ fn main() {
                             effective.map(|s| json_string(&s)).unwrap_or("null".into()),
                             json_string(&cap.prog_id)
                         );
+                        println!("{}", line);
                         continue;
                     }
 
-                    println!(
+                    let line = format!(
                         "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{}}}",
                         unix_time_ms(),
                         json_string(ext),
@@ -616,6 +625,8 @@ fn main() {
                         effective.map(|s| json_string(&s)).unwrap_or("null".into()),
                         json_string(&cap.prog_id)
                     );
+                    println!("{}", line);
+                    let _ = logging::append_line(&log_path, &line);
 
                     if let Err(err) = fag_core::registry::set_user_choice_latest_replay(
                         ext,
@@ -632,7 +643,7 @@ fn main() {
                     let after = fag_core::registry::effective_progid_for_ext(ext)
                         .ok()
                         .flatten();
-                    println!(
+                    let line = format!(
                         "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
                         unix_time_ms(),
                         json_string(ext),
@@ -640,11 +651,55 @@ fn main() {
                         after.map(|s| json_string(&s)).unwrap_or("null".into()),
                         json_string(&cap.prog_id)
                     );
+                    println!("{}", line);
+                    let _ = logging::append_line(&log_path, &line);
                 }
 
                 std::thread::sleep(interval);
             }
         }
+        "sysinfo" => match fag_core::sysinfo::read_sysinfo() {
+            Ok(si) => {
+                let sid = si.sid.as_deref().map(json_string).unwrap_or("null".into());
+                let hash_version = si
+                    .hash_version
+                    .map(|v| v.to_string())
+                    .unwrap_or("null".into());
+                let ucpd_enabled = si
+                    .ucpd_enabled
+                    .map(|v| if v { "true" } else { "false" }.to_string())
+                    .unwrap_or("null".into());
+                let ucpd_driver_present = si
+                    .ucpd_driver_present
+                    .map(|v| if v { "true" } else { "false" }.to_string())
+                    .unwrap_or("null".into());
+                let guidance = si
+                    .guidance
+                    .into_iter()
+                    .map(|s| json_string(&s))
+                    .collect::<Vec<_>>()
+                    .join(",");
+
+                println!(
+                    "{{\"sid\":{},\"hash_version\":{},\"user_choice_latest_enabled\":{},\"ucpd_enabled\":{},\"ucpd_driver_present\":{},\"guidance\":[{}]}}",
+                    sid,
+                    hash_version,
+                    if si.user_choice_latest_enabled {
+                        "true"
+                    } else {
+                        "false"
+                    },
+                    ucpd_enabled,
+                    ucpd_driver_present,
+                    guidance
+                );
+                std::process::exit(0);
+            }
+            Err(err) => {
+                eprintln!("sysinfo failed: {}", err);
+                std::process::exit(1);
+            }
+        },
         "watch" => {
             let mut ext: Option<String> = None;
             let mut name: Option<String> = None;
@@ -710,13 +765,15 @@ fn main() {
             };
 
             let target = cap.prog_id.clone();
+            let log_path = logging::default_log_path();
             eprintln!(
-                "watching ext={} target={} label={} interval={}s store={} (Ctrl+C to stop)",
+                "watching ext={} target={} label={} interval={}s store={} log={} (Ctrl+C to stop)",
                 ext,
                 target,
                 label,
                 interval_secs,
-                path.to_string_lossy()
+                path.to_string_lossy(),
+                log_path.to_string_lossy()
             );
 
             let interval = std::time::Duration::from_secs(interval_secs);
@@ -732,7 +789,7 @@ fn main() {
 
                 let needs_fix = effective.as_deref() != Some(target.as_str());
                 if !needs_fix {
-                    println!(
+                    let line = format!(
                         "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
                         now_ms,
                         json_string(&ext),
@@ -741,8 +798,9 @@ fn main() {
                             .unwrap_or("null".into()),
                         json_string(&target)
                     );
+                    println!("{}", line);
                 } else {
-                    println!(
+                    let line = format!(
                         "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{}}}",
                         now_ms,
                         json_string(&ext),
@@ -751,6 +809,8 @@ fn main() {
                             .unwrap_or("null".into()),
                         json_string(&target)
                     );
+                    println!("{}", line);
+                    let _ = logging::append_line(&log_path, &line);
 
                     match fag_core::registry::set_user_choice_latest_replay(
                         &ext,
@@ -761,13 +821,15 @@ fn main() {
                             let after = fag_core::registry::effective_progid_for_ext(&ext)
                                 .ok()
                                 .flatten();
-                            println!(
+                            let line = format!(
                                 "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
                                 unix_time_ms(),
                                 json_string(&ext),
                                 after.map(|s| json_string(&s)).unwrap_or("null".into()),
                                 json_string(&target)
                             );
+                            println!("{}", line);
+                            let _ = logging::append_line(&log_path, &line);
                         }
                         Err(err) => {
                             eprintln!("watch apply failed: {}", err);

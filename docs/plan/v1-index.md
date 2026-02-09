@@ -16,9 +16,9 @@
 | M3 | `docs/plan/v1-m3-registry-write-restore.md` | 旧版 `UserChoice` restore：`restore` 可写回系统认可的 `ProgId/Hash`（跨分钟自动重试） | `cargo run -p fag-cli -- restore`; 双击/设置验证 + 读取回查 | blocked (HashVersion=1) |
 | M3b | `docs/plan/v1-m3b-userchoicelatest-replay.md` | `HashVersion=1` 场景下：支持 `capture-latest/apply-latest/latest`，可在 VLC / PotPlayer 间来回恢复 | `cargo run -p fag-cli -- latest --ext .mp4`; `cargo run -p fag-cli -- capture-latest ...`; `cargo run -p fag-cli -- apply-latest ...` | done |
 | M4 | `docs/plan/v1-m4-cli-config-rules.md` | `rules/check/watch-rules` 可用；`rules.json` 持久化可回归；`check` exit code 语义固定 | `cargo run -p fag-cli -- rules ...`; `cargo run -p fag-cli -- check`; `cargo run -p fag-cli -- watch-rules --interval 5` | done (no snapshot yet) |
-| M5 | `docs/plan/v1-m5-watch-notify.md` | `watch` 轮询+自动恢复；可选 Toast 通知；事件落日志 | `cargo run -p fag-cli -- watch --interval 5`; 检查日志输出 | todo |
-| M6 | `docs/plan/v1-m6-sysinfo-detection.md` | `sysinfo` 输出 SID/HashVersion/UserChoiceLatest/UCPD，且指引可执行 | `cargo run -p fag-cli -- sysinfo` | todo |
-| M7 | `docs/plan/v1-m7-release-hardening.md` | README + 发布产物；最小集成测试；`cargo build --release` 成功 | `cargo test`; `cargo build --release`; 手动 smoke checklist | todo |
+| M5 | `docs/plan/v1-m5-watch-notify.md` | `watch/watch-rules` 轮询+自动恢复；事件落日志 | `cargo run -p fag-cli -- watch --interval 5`; `cargo run -p fag-cli -- watch-rules --interval 5` | done (toast deferred) |
+| M6 | `docs/plan/v1-m6-sysinfo-detection.md` | `sysinfo` 输出 SID/HashVersion/UserChoiceLatest/UCPD，且指引可执行 | `cargo run -p fag-cli -- sysinfo` | done |
+| M7 | `docs/plan/v1-m7-release-hardening.md` | README + 发布产物；最小集成测试；`cargo build --release` 成功 | `cargo test`; `cargo build --release`; 手动 smoke checklist | done |
 
 ## Plan Index
 
@@ -35,17 +35,17 @@
 
 | Req ID | Plan Coverage | Verification Hook | Evidence（产物路径） |
 |---|---|---|---|
-| REQ-001 | M1..M7 | `cargo test` + Win11 手动运行 | `docs/plan/evidence/v1/platform.md` |
+| REQ-001 | M1..M7 | `cargo test` + Win11 手动运行 | `docs/plan/evidence/v1/m7-release.md` |
 | REQ-010 | M1 | `cargo run -p fag-cli -- read --ext .mp4` | `docs/plan/evidence/v1/m1-read.md` |
 | REQ-011 | M4 | (deferred) `snapshot` | `docs/plan/evidence/v1/m4-rules.md` |
 | REQ-012 | M4 | `add/remove/list` 回归 | `docs/plan/evidence/v1/m4-rules.md` |
 | REQ-013 | M4 | `check` 输出 + exit code | `docs/plan/evidence/v1/m4-rules.md` |
 | REQ-014 | M2,M3 | `cargo test -p fag-core hash::` + `restore` + 回查 read | `docs/plan/evidence/v1/m2-hash.md`, `docs/plan/evidence/v1/m3-restore.md` |
 | REQ-015 | M5 | `watch` 轮询恢复 | `docs/plan/evidence/v1/m5-watch.md` |
-| REQ-016 | M5 | Toast 可见（开关） | `docs/plan/evidence/v1/m5-toast.md` |
+| REQ-016 | M5 | (deferred) Toast | `docs/plan/evidence/v1/m5-watch.md` |
 | REQ-017 | M6 | `sysinfo` 输出字段齐全 | `docs/plan/evidence/v1/m6-sysinfo.md` |
-| REQ-018 | M6 | `HashVersion=1` 场景输出 ViveTool 指引 | `docs/plan/evidence/v1/m6-latest-guidance.md` |
-| REQ-019 | M5 | 日志格式/字段可解析 | `docs/plan/evidence/v1/m5-logs.md` |
+| REQ-018 | M6 | `HashVersion=1` 场景输出 ViveTool 指引 | `docs/plan/evidence/v1/m6-sysinfo.md` |
+| REQ-019 | M5 | 日志格式/字段可解析 | `docs/plan/evidence/v1/m5-watch.md` |
 | REQ-020 | M3b | `capture-latest/apply-latest/latest` | `docs/plan/evidence/v1/m3b-latest-replay.md` |
 
 ## Doc QA Gate（强制）

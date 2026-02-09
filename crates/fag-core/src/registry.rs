@@ -601,13 +601,13 @@ unsafe fn read_user_choice_from_subkey(
 
 #[cfg(windows)]
 #[derive(Debug, Copy, Clone)]
-struct WinApiError {
-    api: &'static str,
-    code: u32,
+pub(crate) struct WinApiError {
+    pub(crate) api: &'static str,
+    pub(crate) code: u32,
 }
 
 #[cfg(windows)]
-unsafe fn windows_last_error() -> u32 {
+pub(crate) unsafe fn windows_last_error() -> u32 {
     #[link(name = "Kernel32")]
     extern "system" {
         fn GetLastError() -> u32;
@@ -616,7 +616,7 @@ unsafe fn windows_last_error() -> u32 {
 }
 
 #[cfg(windows)]
-unsafe fn current_user_sid() -> Result<String, WinApiError> {
+pub(crate) unsafe fn current_user_sid() -> Result<String, WinApiError> {
     type HANDLE = isize;
     type BOOL = i32;
     type PSID = *mut core::ffi::c_void;
@@ -730,7 +730,7 @@ unsafe fn current_user_sid() -> Result<String, WinApiError> {
 }
 
 #[cfg(windows)]
-unsafe fn read_hash_version(sid: &str) -> Result<Option<u32>, WinApiError> {
+pub(crate) unsafe fn read_hash_version(sid: &str) -> Result<Option<u32>, WinApiError> {
     type HKEY = isize;
     const HKEY_LOCAL_MACHINE: HKEY = 0x8000_0002_u32 as isize;
     const KEY_READ: u32 = 0x20019;

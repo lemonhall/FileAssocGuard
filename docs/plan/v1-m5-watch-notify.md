@@ -1,8 +1,10 @@
-# v1 M5 — watch 守护 + 通知 + 日志
+# v1 M5 — watch 守护 + 日志（Toast 延后）
 
 ## Goal
 
-提供 `watch` 守护模式：轮询检测、自动恢复、记录事件日志，并在启用时触发 Win11 Toast 通知。
+提供 `watch` 守护模式：轮询检测、自动恢复、记录事件日志。
+
+> 注：Win11 Toast（非打包桌面程序）通常涉及 AUMID/快捷方式注册等，容易引入复杂度；为尽快完成 Phase 1 并进入 Godot GUI，本阶段先把日志与守护闭环做硬，Toast 延后到 GUI（v2+）或后续 v1.x。
 
 ## PRD Trace
 
@@ -15,19 +17,15 @@
 
 ## Acceptance（硬 DoD）
 
-- `watch --interval 5`：
+- `watch --interval 5` / `watch-rules --interval 5`：
   - 每个周期至少执行一次 `check`；发现篡改后执行 `restore` 并记录“恢复成功/失败”事件。
   - 日志记录包含：时间、ext、old_progid、new_progid、action、result。
-- 通知：
-  - 开关开启时，发生恢复必须触发 Toast（可手动确认）。
-  - 开关关闭时不得触发 Toast（可通过日志确认无通知调用）。
+- 日志默认路径：`%APPDATA%\\FileAssocGuard\\guard.log`（JSON lines）。
 
 ## Files
 
-- Create: `crates/fag-core/src/monitor.rs`
-- Create: `crates/fag-core/src/notify.rs`
 - Modify: `crates/fag-cli/src/main.rs`
-- Create: `logs/`（运行时目录；计划中需定义创建策略）
+- Create: `crates/fag-cli/src/logging.rs`
 
 ## Steps（TDD）
 
@@ -48,14 +46,9 @@
    - Run: `cargo run -p fag-cli -- watch --interval 5`
    - Expected: 持续运行并写日志
 
-5) **Green — 通知实现（可用 `#[cfg(windows)]`）**  
-   - Run: `cargo test`（非 Windows 下可跳过或 stub）
-   - Expected: Windows 下可见 Toast
-
-6) **Refactor（仍绿）**  
+5) **Refactor（仍绿）**  
    - 把“事件”作为结构体贯穿（GUI 复用铺路）
 
 ## Risks
 
-- Toast API 选型与权限/依赖（可能需要额外 crate/manifest）；先在 DoD 中明确“最小可见通知”标准。
-
+- 日志量：watch 的 OK 事件可能很频繁；建议只记录篡改/恢复事件（或未来加采样/滚动）。

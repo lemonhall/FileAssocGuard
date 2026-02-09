@@ -3,6 +3,10 @@ name = "fag-cli"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "fag"
+path = "src/main.rs"
+
 [dependencies]
 fag-core = { path = "../fag-core" }
 serde = { version = "1", features = ["derive"] }
