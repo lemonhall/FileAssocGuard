@@ -11,7 +11,7 @@
 
 | Milestone | Plan | DoD（硬验收） | Verification（可重复） | Status |
 |---|---|---|---|---|
-| M1 | `docs/plan/v1-m1-workspace-registry-read.md` | `cargo test` 全绿；`fag.exe read --ext .mp4` 可读出 `ProgId/Hash/LastWriteTime`（或明确无值） | `cargo test`; `cargo run -p fag-cli -- read --ext .mp4` | todo |
+| M1 | `docs/plan/v1-m1-workspace-registry-read.md` | `cargo test` 全绿；`fag.exe read --ext .mp4` 可读出 `ProgId/Hash/LastWriteTime`（或明确无值） | `cargo test`; `cargo run -p fag-cli -- read --ext .mp4` | done |
 | M2 | `docs/plan/v1-m2-hash-algorithm.md` | Hash 算法通过已知向量单测；在真实系统数据上可复算出一致 Hash | `cargo test -p fag-core hash::`（含向量）；附带 `tools/` 或测试辅助读值 | todo |
 | M3 | `docs/plan/v1-m3-registry-write-restore.md` | `restore` 可写回系统认可的 `ProgId/Hash`（跨分钟自动重试） | `cargo run -p fag-cli -- restore`; 双击/设置验证 + 读取回查 | todo |
 | M4 | `docs/plan/v1-m4-cli-config-rules.md` | `snapshot/list/add/remove/check` 可用；JSON 持久化可回归 | `cargo run -p fag-cli -- snapshot ...`; `check` exit code 语义固定 | todo |
@@ -58,3 +58,6 @@
 - `UserChoiceLatest` 新 Hash（仅检测与引导，不实现）。
 - GUI（Godot）全部内容（进入 v2+）。
 
+## Delivery Notes
+
+- CI/推送：当前执行环境中 `git push` 由于 GitHub HTTPS 凭据提示不可交互而失败（`could not read Username for 'https://github.com'`）；需在本机交互式环境完成 push。
