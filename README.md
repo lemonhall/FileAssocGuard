@@ -1,6 +1,6 @@
 # FileAssocGuard (Phase 1: Rust CLI)
 
-> 当前状态：仅实现到 Phase 1 的早期命令（read/progids/restore）。
+> 当前状态：已支持 Win11 `HashVersion=1`（`UserChoiceLatest`）的 **capture/replay** 恢复（不依赖外部 exe）。
 
 ## 为什么你的 `cargo run` 会报 “找不到 Cargo.toml”？
 
@@ -20,21 +20,26 @@ cargo run -p fag-cli -- read --ext .mp4
 cargo run -p fag-cli -- progids --ext .mp4
 ```
 
-### 3) 恢复/切换 `.mp4` 关联
+### 3) Win11 新机制（HashVersion=1）：capture / apply（推荐）
 
 ```powershell
-# 自动从候选 ProgId 里挑一个包含 "vlc" 的
-cargo run -p fag-cli -- restore --ext .mp4 --to vlc
+# 看当前 UserChoiceLatest（含 effective_progid）
+cargo run -p fag-cli -- latest --ext .mp4
 
-# 或指定明确 ProgId
-cargo run -p fag-cli -- restore --ext .mp4 --progid VLC.mp4
+# 先在 Windows 设置里把 .mp4 默认应用切到 VLC 一次，然后捕获
+cargo run -p fag-cli -- capture-latest --ext .mp4 --name vlc
+
+# 再切到 PotPlayer 一次，然后捕获
+cargo run -p fag-cli -- capture-latest --ext .mp4 --name potplayer
+
+# 之后就可以在两者之间来回恢复（不需要知道 ProgId/Hash）
+cargo run -p fag-cli -- apply-latest --ext .mp4 --name vlc
+cargo run -p fag-cli -- apply-latest --ext .mp4 --name potplayer
+
+# 查看当前已保存的标签
+cargo run -p fag-cli -- captures --ext .mp4
 ```
 
-## Win11 新机制（HashVersion=1）怎么处理？
+## captures.json 在哪？
 
-你的系统如果启用了 `HashVersion=1`（UserChoiceLatest），那么我们目前的“旧算法写回”会被系统拒绝。
-
-这部分的目标是：实现 **UserChoiceLatest 新 Hash** 的原生支持（不依赖外部 exe）。在完成之前：
-
-- `restore` 会明确报错提示“未实现”；
-- 临时 workaround 是用 ViveTool 禁用相关 Feature ID 并重启（见命令输出）。
+默认写入：`%APPDATA%\\FileAssocGuard\\captures.json`（建议自行备份）。

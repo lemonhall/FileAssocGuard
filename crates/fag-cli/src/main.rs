@@ -1,7 +1,11 @@
+mod captures;
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
-        eprintln!("usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>");
+        eprintln!(
+            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
+        );
         std::process::exit(2);
     };
 
@@ -82,6 +86,275 @@ fn main() {
                 }
             }
         }
+        "latest" => {
+            let mut ext: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    _ => {}
+                }
+            }
+
+            let Some(ext) = ext else {
+                eprintln!("usage: fag latest --ext <.ext>");
+                std::process::exit(2);
+            };
+
+            let effective = match fag_core::registry::effective_progid_for_ext(&ext) {
+                Ok(Some(s)) => json_string(&s),
+                Ok(None) => "null".into(),
+                Err(err) => {
+                    eprintln!("warning: effective progid query failed: {}", err);
+                    "null".into()
+                }
+            };
+
+            match fag_core::registry::read_user_choice_latest(&ext) {
+                Ok(None) => {
+                    println!(
+                        "{{\"ext\":{},\"status\":\"NOT_SET\",\"prog_id\":null,\"hash\":null,\"last_write_time_filetime\":null,\"prog_id_last_write_time_filetime\":null,\"effective_progid\":{}}}",
+                        json_string(&ext),
+                        effective
+                    );
+                    std::process::exit(0);
+                }
+                Ok(Some(uc)) => {
+                    let prog_id = uc.prog_id.map(|s| json_string(&s)).unwrap_or("null".into());
+                    let hash = uc.hash.map(|s| json_string(&s)).unwrap_or("null".into());
+                    let last_write = uc
+                        .last_write_time
+                        .map(|ft| ft.as_u64().to_string())
+                        .map(|s| json_string(&s))
+                        .unwrap_or("null".into());
+                    let progid_last_write = uc
+                        .prog_id_last_write_time
+                        .map(|ft| ft.as_u64().to_string())
+                        .map(|s| json_string(&s))
+                        .unwrap_or("null".into());
+
+                    println!(
+                        "{{\"ext\":{},\"status\":\"OK\",\"prog_id\":{},\"hash\":{},\"last_write_time_filetime\":{},\"prog_id_last_write_time_filetime\":{},\"effective_progid\":{}}}",
+                        json_string(&ext),
+                        prog_id,
+                        hash,
+                        last_write,
+                        progid_last_write,
+                        effective
+                    );
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    eprintln!("latest failed: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        "capture-latest" => {
+            let mut ext: Option<String> = None;
+            let mut name: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    "--name" => name = args.next(),
+                    _ => {}
+                }
+            }
+
+            let Some(ext_raw) = ext else {
+                eprintln!("usage: fag capture-latest --ext <.ext> --name <label>");
+                std::process::exit(2);
+            };
+            let Some(name_raw) = name else {
+                eprintln!("usage: fag capture-latest --ext <.ext> --name <label>");
+                std::process::exit(2);
+            };
+
+            let ext = match normalize_ext_for_store(&ext_raw) {
+                Ok(e) => e,
+                Err(msg) => {
+                    eprintln!("capture-latest failed: {}", msg);
+                    std::process::exit(2);
+                }
+            };
+            let name = name_raw.trim().to_ascii_lowercase();
+            if name.is_empty() {
+                eprintln!("capture-latest failed: --name is empty");
+                std::process::exit(2);
+            }
+
+            match fag_core::registry::read_user_choice_latest(&ext) {
+                Ok(Some(uc)) => {
+                    let Some(prog_id) = uc.prog_id else {
+                        eprintln!("capture-latest failed: ProgId missing in UserChoiceLatest");
+                        std::process::exit(1);
+                    };
+                    let Some(hash) = uc.hash else {
+                        eprintln!("capture-latest failed: Hash missing in UserChoiceLatest");
+                        std::process::exit(1);
+                    };
+
+                    let cap = captures::LatestCapture {
+                        prog_id: prog_id.clone(),
+                        hash: hash.clone(),
+                        last_write_time_filetime: uc.last_write_time.map(|ft| ft.as_u64()),
+                        prog_id_last_write_time_filetime: uc
+                            .prog_id_last_write_time
+                            .map(|ft| ft.as_u64()),
+                    };
+
+                    let path = captures::default_store_path();
+                    if let Err(err) = captures::upsert_latest_capture(&path, &ext, &name, cap) {
+                        eprintln!("capture-latest failed: store write error: {}", err);
+                        std::process::exit(1);
+                    }
+
+                    println!(
+                        "{{\"ext\":{},\"name\":{},\"prog_id\":{},\"hash\":{},\"store_path\":{}}}",
+                        json_string(&ext),
+                        json_string(&name),
+                        json_string(&prog_id),
+                        json_string(&hash),
+                        json_string(path.to_string_lossy().as_ref())
+                    );
+                    eprintln!("next: fag apply-latest --ext {} --name {}", ext, name);
+                    std::process::exit(0);
+                }
+                Ok(None) => {
+                    eprintln!(
+                        "capture-latest failed: UserChoiceLatest not set for {}",
+                        ext
+                    );
+                    std::process::exit(1);
+                }
+                Err(err) => {
+                    eprintln!("capture-latest failed: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        "apply-latest" => {
+            let mut ext: Option<String> = None;
+            let mut name: Option<String> = None;
+            let mut progid: Option<String> = None;
+            let mut hash: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    "--name" => name = args.next(),
+                    "--progid" => progid = args.next(),
+                    "--hash" => hash = args.next(),
+                    _ => {}
+                }
+            }
+
+            let Some(ext_raw) = ext else {
+                eprintln!("usage: fag apply-latest --ext <.ext> --name <label>");
+                eprintln!("   or: fag apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>");
+                std::process::exit(2);
+            };
+            let ext = match normalize_ext_for_store(&ext_raw) {
+                Ok(e) => e,
+                Err(msg) => {
+                    eprintln!("apply-latest failed: {}", msg);
+                    std::process::exit(2);
+                }
+            };
+
+            let (progid, hash, source) = match (name, progid, hash) {
+                (Some(n), None, None) => {
+                    let label = n.trim().to_ascii_lowercase();
+                    if label.is_empty() {
+                        eprintln!("apply-latest failed: --name is empty");
+                        std::process::exit(2);
+                    }
+                    let path = captures::default_store_path();
+                    let cap = match captures::get_latest_capture(&path, &ext, &label) {
+                        Ok(Some(c)) => c,
+                        Ok(None) => {
+                            eprintln!(
+                                "apply-latest failed: no capture found for ext={} name={}. Run capture first: fag capture-latest --ext {} --name {}",
+                                ext, label, ext, label
+                            );
+                            std::process::exit(1);
+                        }
+                        Err(err) => {
+                            eprintln!("apply-latest failed: store read error: {}", err);
+                            std::process::exit(1);
+                        }
+                    };
+                    (cap.prog_id, cap.hash, format!("store:{}", label))
+                }
+                (None, Some(p), Some(h)) => (p, h, "inline".to_string()),
+                _ => {
+                    eprintln!("usage: fag apply-latest --ext <.ext> --name <label>");
+                    eprintln!(
+                        "   or: fag apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>"
+                    );
+                    std::process::exit(2);
+                }
+            };
+
+            match fag_core::registry::set_user_choice_latest_replay(&ext, &progid, &hash) {
+                Ok(()) => {
+                    let effective = match fag_core::registry::effective_progid_for_ext(&ext) {
+                        Ok(Some(s)) => json_string(&s),
+                        Ok(None) => "null".into(),
+                        Err(err) => {
+                            eprintln!("warning: effective progid query failed: {}", err);
+                            "null".into()
+                        }
+                    };
+                    println!(
+                        "{{\"ext\":{},\"status\":\"APPLIED\",\"prog_id\":{},\"effective_progid\":{},\"source\":{}}}",
+                        json_string(&ext),
+                        json_string(&progid),
+                        effective,
+                        json_string(&source)
+                    );
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    eprintln!("apply-latest failed: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        "captures" => {
+            let mut ext: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    _ => {}
+                }
+            }
+
+            let Some(ext_raw) = ext else {
+                eprintln!("usage: fag captures --ext <.ext>");
+                std::process::exit(2);
+            };
+            let ext = match normalize_ext_for_store(&ext_raw) {
+                Ok(e) => e,
+                Err(msg) => {
+                    eprintln!("captures failed: {}", msg);
+                    std::process::exit(2);
+                }
+            };
+
+            let path = captures::default_store_path();
+            let names = captures::list_capture_names(&path, &ext).unwrap_or_default();
+            let joined = names
+                .into_iter()
+                .map(|s| json_string(&s))
+                .collect::<Vec<_>>()
+                .join(",");
+            println!(
+                "{{\"ext\":{},\"names\":[{}],\"store_path\":{}}}",
+                json_string(&ext),
+                joined,
+                json_string(path.to_string_lossy().as_ref())
+            );
+            std::process::exit(0);
+        }
         "restore" => {
             let mut ext: Option<String> = None;
             let mut progid: Option<String> = None;
@@ -134,12 +407,19 @@ fn main() {
                     hash_version,
                 }) => {
                     eprintln!(
-                        "restore failed: UserChoiceLatest is enabled (HashVersion={}). Native support is not implemented yet.",
+                        "restore failed: UserChoiceLatest is enabled (HashVersion={}). Use the capture/replay workflow instead.",
                         hash_version
                     );
-                    eprintln!("Workaround (temporary): disable the UserChoiceLatest feature flags via ViveTool and reboot.");
-                    eprintln!("  vivetool /disable /id:43229420");
-                    eprintln!("  vivetool /disable /id:27623730");
+                    eprintln!("Steps:");
+                    eprintln!(
+                        "  1) Use Windows Settings to set the default app for {} once.",
+                        ext
+                    );
+                    eprintln!(
+                        "  2) Run: fag capture-latest --ext {} --name <vlc|potplayer>",
+                        ext
+                    );
+                    eprintln!("  3) Later, restore with: fag apply-latest --ext {} --name <vlc|potplayer>", ext);
                     std::process::exit(1);
                 }
                 Err(err) => {
@@ -174,6 +454,18 @@ fn json_string(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+fn normalize_ext_for_store(ext: &str) -> Result<String, String> {
+    let ext = ext.trim();
+    if ext.is_empty() || ext == "." {
+        return Err("invalid extension".to_string());
+    }
+    let ext = ext.strip_prefix('.').unwrap_or(ext);
+    if ext.is_empty() || ext.contains(['\\', '/', '\0']) {
+        return Err("invalid extension".to_string());
+    }
+    Ok(format!(".{}", ext))
 }
 
 fn pick_progid_by_hint(ext: &str, hint: &str) -> Result<String, String> {

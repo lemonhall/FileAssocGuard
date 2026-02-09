@@ -4,6 +4,8 @@
 
 实现“按守护规则写回 UserChoice（ProgId+Hash）且系统认可”，并处理“同一分钟窗口”与重试。
 
+> 注：当系统启用 `UserChoiceLatest`（例如 `HashVersion=1`）时，旧版 `UserChoice` 写回会被系统拒绝；该场景的“可恢复”由 `v1 M3b`（capture/replay）覆盖：`docs/plan/v1-m3b-userchoicelatest-replay.md`。
+
 ## PRD Trace
 
 - `REQ-014`
@@ -46,4 +48,3 @@
 ## Risks
 
 - 需要管理员权限；测试必须显式区分“纯逻辑单测”与“管理员集成测试”。
-

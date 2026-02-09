@@ -9,7 +9,7 @@
 
 ## Non-Goals（本阶段不做）
 
-- 不在 MVP 中逆向实现 Win11 `UserChoiceLatest` 新 Hash（只做检测与引导）。见 `F30`。
+- 不在 MVP 中逆向/计算 Win11 `UserChoiceLatest` 新 Hash（长期目标）。但会提供 **capture/replay** 工作流以支持 `HashVersion=1` 的系统（不依赖外部 exe）。
 - 不在 MVP 中做“篡改来源进程识别/溯源”（ETW/审计）。见 `F31`。
 - 不追求跨机器配置漫游/同步。见 `F32`。
 
@@ -18,6 +18,7 @@
 - **Ext**：扩展名（带点），例如 `.mp4`
 - **ProgId**：Windows 文件关联的程序标识符（例如 `PotPlayer.mp4`）
 - **UserChoice**：`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.<ext>\UserChoice`
+- **UserChoiceLatest**：`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.<ext>\UserChoiceLatest`
 - **HashVersion**：`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\SystemProtectedUserData\<SID>\AnyoneRead\AppDefaults\HashVersion`
 
 ## Constraints（关键约束）
@@ -108,6 +109,15 @@
 - PRD Trace: `F11`
 - Acceptance:
   - `watch/check/restore` 的关键事件写入 `logs/guard.log`（或由配置指定路径），且日志行可被脚本稳定解析（例如 JSON lines 或固定前缀格式，二选一）。
+
+**REQ-020（HashVersion=1 支持：UserChoiceLatest capture/replay）**  
+当系统启用 `UserChoiceLatest`（常见于 `HashVersion=1`）导致“旧版 UserChoice Hash 写入”不可用时，仍能在 **不依赖外部 exe** 的前提下实现“可恢复”：通过捕获系统当前有效的 `UserChoiceLatest (ProgId + Hash)`，并在需要时回放写回。
+
+- PRD Trace: `L2/L4`
+- Acceptance:
+  - 用户通过 Windows 设置把 `.mp4` 默认程序设置为 VLC（或 PotPlayer）一次后：
+    - `fag.exe capture-latest --ext .mp4 --name vlc` 能保存当前 `ProgId/Hash`（持久化到本地存档）。
+    - `fag.exe apply-latest --ext .mp4 --name vlc` 能写回并使系统生效（用 `fag.exe latest --ext .mp4` 的 `effective_progid` 验证）。
 
 ### Phase 2（Godot GUI，后续版本计划覆盖）
 

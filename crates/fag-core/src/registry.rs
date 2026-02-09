@@ -5,6 +5,13 @@ pub struct UserChoice {
     pub last_write_time: Option<FileTime>,
 }
 
+pub struct UserChoiceLatest {
+    pub prog_id: Option<String>,
+    pub hash: Option<String>,
+    pub last_write_time: Option<FileTime>,
+    pub prog_id_last_write_time: Option<FileTime>,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FileTime {
     pub low_date_time: u32,
@@ -25,6 +32,33 @@ pub fn read_user_choice(ext: &str) -> Result<Option<UserChoice>, ReadUserChoiceE
     );
 
     unsafe { read_user_choice_from_subkey(&subkey) }
+}
+
+pub fn read_user_choice_latest(ext: &str) -> Result<Option<UserChoiceLatest>, ReadUserChoiceError> {
+    let ext = normalize_ext(ext)?;
+    let base = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{}\\UserChoiceLatest",
+        ext
+    );
+
+    let base_uc = unsafe { read_user_choice_from_subkey(&base)? };
+    let progid_uc = unsafe { read_user_choice_from_subkey(&format!("{}\\ProgId", base))? };
+
+    if base_uc.is_none() && progid_uc.is_none() {
+        return Ok(None);
+    }
+
+    let hash = base_uc.as_ref().and_then(|uc| uc.hash.clone());
+    let last_write_time = base_uc.as_ref().and_then(|uc| uc.last_write_time);
+    let prog_id = progid_uc.as_ref().and_then(|uc| uc.prog_id.clone());
+    let prog_id_last_write_time = progid_uc.as_ref().and_then(|uc| uc.last_write_time);
+
+    Ok(Some(UserChoiceLatest {
+        prog_id,
+        hash,
+        last_write_time,
+        prog_id_last_write_time,
+    }))
 }
 
 pub enum ReadUserChoiceError {
@@ -49,6 +83,14 @@ pub enum SetUserChoiceError {
     WindowsApiError { api: &'static str, code: u32 },
 }
 
+#[derive(Debug)]
+pub enum SetUserChoiceLatestError {
+    InvalidExt,
+    ProgIdEmpty,
+    HashEmpty,
+    WindowsApiError { api: &'static str, code: u32 },
+}
+
 impl std::fmt::Display for SetUserChoiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -65,6 +107,19 @@ impl std::fmt::Display for SetUserChoiceError {
 }
 
 impl std::error::Error for SetUserChoiceError {}
+
+impl std::fmt::Display for SetUserChoiceLatestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidExt => write!(f, "invalid extension"),
+            Self::ProgIdEmpty => write!(f, "prog_id is empty"),
+            Self::HashEmpty => write!(f, "hash is empty"),
+            Self::WindowsApiError { api, code } => write!(f, "{} failed with {}", api, code),
+        }
+    }
+}
+
+impl std::error::Error for SetUserChoiceLatestError {}
 
 pub fn list_open_with_progids(ext: &str) -> Result<Vec<String>, ReadUserChoiceError> {
     let ext = normalize_ext(ext)?;
@@ -157,6 +212,103 @@ pub fn set_user_choice(
     }
 }
 
+pub fn set_user_choice_latest_replay(
+    ext: &str,
+    prog_id: &str,
+    hash: &str,
+) -> Result<(), SetUserChoiceLatestError> {
+    let ext = normalize_ext(ext).map_err(|_| SetUserChoiceLatestError::InvalidExt)?;
+    let prog_id = prog_id.trim();
+    let hash = hash.trim();
+    if prog_id.is_empty() {
+        return Err(SetUserChoiceLatestError::ProgIdEmpty);
+    }
+    if hash.is_empty() {
+        return Err(SetUserChoiceLatestError::HashEmpty);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = ext;
+        let _ = prog_id;
+        let _ = hash;
+        return Err(SetUserChoiceLatestError::WindowsApiError {
+            api: "windows-only",
+            code: 0,
+        });
+    }
+
+    #[cfg(windows)]
+    unsafe {
+        let base = format!(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{}\\UserChoiceLatest",
+            ext
+        );
+
+        let (hkey, _created) = create_or_open_hkcu(&base).map_err(|e| match e {
+            SetUserChoiceError::WindowsApiError { api, code } => {
+                SetUserChoiceLatestError::WindowsApiError { api, code }
+            }
+            _ => SetUserChoiceLatestError::WindowsApiError {
+                api: "create_or_open_hkcu(UserChoiceLatest)",
+                code: 0,
+            },
+        })?;
+        set_reg_sz(hkey, "Hash", hash).map_err(|e| match e {
+            SetUserChoiceError::WindowsApiError { api, code } => {
+                SetUserChoiceLatestError::WindowsApiError { api, code }
+            }
+            _ => SetUserChoiceLatestError::WindowsApiError {
+                api: "set_reg_sz(Hash)",
+                code: 0,
+            },
+        })?;
+        let _ = reg_close_key(hkey);
+
+        let prog_id_sub = format!("{}\\ProgId", base);
+        let (hkey2, _created2) = create_or_open_hkcu(&prog_id_sub).map_err(|e| match e {
+            SetUserChoiceError::WindowsApiError { api, code } => {
+                SetUserChoiceLatestError::WindowsApiError { api, code }
+            }
+            _ => SetUserChoiceLatestError::WindowsApiError {
+                api: "create_or_open_hkcu(UserChoiceLatest\\ProgId)",
+                code: 0,
+            },
+        })?;
+        set_reg_sz(hkey2, "ProgId", prog_id).map_err(|e| match e {
+            SetUserChoiceError::WindowsApiError { api, code } => {
+                SetUserChoiceLatestError::WindowsApiError { api, code }
+            }
+            _ => SetUserChoiceLatestError::WindowsApiError {
+                api: "set_reg_sz(ProgId)",
+                code: 0,
+            },
+        })?;
+        let _ = reg_close_key(hkey2);
+
+        sh_change_notify_assoc_changed();
+        Ok(())
+    }
+}
+
+pub fn effective_progid_for_ext(ext: &str) -> Result<Option<String>, ReadUserChoiceError> {
+    let ext = normalize_ext(ext)?;
+
+    #[cfg(windows)]
+    unsafe {
+        assoc_query_progid(&ext)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = ext;
+        Err(ReadUserChoiceError::WindowsApiError {
+            api: "windows-only",
+            code: 0,
+        })
+    }
+}
+
 impl std::fmt::Debug for ReadUserChoiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -195,6 +347,91 @@ fn normalize_ext(ext: &str) -> Result<String, ReadUserChoiceError> {
         return Err(ReadUserChoiceError::InvalidExt);
     }
     Ok(format!(".{}", ext))
+}
+
+#[cfg(windows)]
+unsafe fn sh_change_notify_assoc_changed() {
+    #[link(name = "Shell32")]
+    extern "system" {
+        fn SHChangeNotify(event_id: i32, flags: u32, item1: *const u8, item2: *const u8);
+    }
+
+    SHChangeNotify(0x0800_0000u32 as i32, 0, std::ptr::null(), std::ptr::null());
+}
+
+#[cfg(windows)]
+unsafe fn assoc_query_progid(ext: &str) -> Result<Option<String>, ReadUserChoiceError> {
+    type HRESULT = i32;
+
+    const S_OK: HRESULT = 0;
+    const S_FALSE: HRESULT = 1;
+    const E_POINTER: HRESULT = 0x80004003u32 as i32;
+    const ASSOCSTR_PROGID: u32 = 20;
+
+    #[link(name = "Shlwapi")]
+    extern "system" {
+        fn AssocQueryStringW(
+            flags: u32,
+            str: u32,
+            pszAssoc: *const u16,
+            pszExtra: *const u16,
+            pszOut: *mut u16,
+            pcchOut: *mut u32,
+        ) -> HRESULT;
+    }
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let assoc_w = to_wide(ext);
+    let mut needed: u32 = 0;
+    let hr = AssocQueryStringW(
+        0,
+        ASSOCSTR_PROGID,
+        assoc_w.as_ptr(),
+        std::ptr::null(),
+        std::ptr::null_mut(),
+        &mut needed,
+    );
+    if needed == 0 {
+        return Ok(None);
+    }
+    if hr != S_OK && hr != S_FALSE && hr != E_POINTER {
+        return Err(ReadUserChoiceError::WindowsApiError {
+            api: "AssocQueryStringW(size)",
+            code: hr as u32,
+        });
+    }
+
+    let mut buf = vec![0u16; needed as usize];
+    let hr = AssocQueryStringW(
+        0,
+        ASSOCSTR_PROGID,
+        assoc_w.as_ptr(),
+        std::ptr::null(),
+        buf.as_mut_ptr(),
+        &mut needed,
+    );
+    if hr == S_FALSE {
+        return Ok(None);
+    }
+    if hr != S_OK {
+        return Err(ReadUserChoiceError::WindowsApiError {
+            api: "AssocQueryStringW(data)",
+            code: hr as u32,
+        });
+    }
+
+    if let Some(pos) = buf.iter().position(|c| *c == 0) {
+        buf.truncate(pos);
+    }
+    Ok(Some(String::from_utf16_lossy(&buf)))
 }
 
 #[cfg(windows)]

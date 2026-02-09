@@ -5,7 +5,7 @@
 
 ## Version Goal
 
-交付 **Phase 1 Rust CLI MVP**：支持规则管理、检测篡改、恢复文件关联、前台守护，并对 Win11 `UserChoiceLatest` 新机制提供检测与指引（不实现新 Hash）。
+交付 **Phase 1 Rust CLI MVP**：支持规则管理、检测篡改、恢复文件关联、前台守护，并在 `HashVersion=1` 场景下通过 **UserChoiceLatest capture/replay** 方式实现“可恢复”（不逆向新 Hash、不依赖外部 exe）。
 
 ## Milestones
 
@@ -13,7 +13,8 @@
 |---|---|---|---|---|
 | M1 | `docs/plan/v1-m1-workspace-registry-read.md` | `cargo test` 全绿；`fag.exe read --ext .mp4` 可读出 `ProgId/Hash/LastWriteTime`（或明确无值） | `cargo test`; `cargo run -p fag-cli -- read --ext .mp4` | done |
 | M2 | `docs/plan/v1-m2-hash-algorithm.md` | Hash 算法通过已知向量单测；在真实系统数据上可复算出一致 Hash | `cargo test -p fag-core hash::`（含向量）；附带 `tools/` 或测试辅助读值 | done |
-| M3 | `docs/plan/v1-m3-registry-write-restore.md` | `restore` 可写回系统认可的 `ProgId/Hash`（跨分钟自动重试） | `cargo run -p fag-cli -- restore`; 双击/设置验证 + 读取回查 | blocked (HashVersion=1) |
+| M3 | `docs/plan/v1-m3-registry-write-restore.md` | 旧版 `UserChoice` restore：`restore` 可写回系统认可的 `ProgId/Hash`（跨分钟自动重试） | `cargo run -p fag-cli -- restore`; 双击/设置验证 + 读取回查 | blocked (HashVersion=1) |
+| M3b | `docs/plan/v1-m3b-userchoicelatest-replay.md` | `HashVersion=1` 场景下：支持 `capture-latest/apply-latest/latest`，可在 VLC / PotPlayer 间来回恢复 | `cargo run -p fag-cli -- latest --ext .mp4`; `cargo run -p fag-cli -- capture-latest ...`; `cargo run -p fag-cli -- apply-latest ...` | done |
 | M4 | `docs/plan/v1-m4-cli-config-rules.md` | `snapshot/list/add/remove/check` 可用；JSON 持久化可回归 | `cargo run -p fag-cli -- snapshot ...`; `check` exit code 语义固定 | todo |
 | M5 | `docs/plan/v1-m5-watch-notify.md` | `watch` 轮询+自动恢复；可选 Toast 通知；事件落日志 | `cargo run -p fag-cli -- watch --interval 5`; 检查日志输出 | todo |
 | M6 | `docs/plan/v1-m6-sysinfo-detection.md` | `sysinfo` 输出 SID/HashVersion/UserChoiceLatest/UCPD，且指引可执行 | `cargo run -p fag-cli -- sysinfo` | todo |
@@ -24,6 +25,7 @@
 - `docs/plan/v1-m1-workspace-registry-read.md`
 - `docs/plan/v1-m2-hash-algorithm.md`
 - `docs/plan/v1-m3-registry-write-restore.md`
+- `docs/plan/v1-m3b-userchoicelatest-replay.md`
 - `docs/plan/v1-m4-cli-config-rules.md`
 - `docs/plan/v1-m5-watch-notify.md`
 - `docs/plan/v1-m6-sysinfo-detection.md`
@@ -44,6 +46,7 @@
 | REQ-017 | M6 | `sysinfo` 输出字段齐全 | `docs/plan/evidence/v1/m6-sysinfo.md` |
 | REQ-018 | M6 | `HashVersion=1` 场景输出 ViveTool 指引 | `docs/plan/evidence/v1/m6-latest-guidance.md` |
 | REQ-019 | M5 | 日志格式/字段可解析 | `docs/plan/evidence/v1/m5-logs.md` |
+| REQ-020 | M3b | `capture-latest/apply-latest/latest` | `docs/plan/evidence/v1/m3b-latest-replay.md` |
 
 ## Doc QA Gate（强制）
 
@@ -55,7 +58,7 @@
 
 ## Known Deltas（本轮结束仍可能未满足）
 
-- `UserChoiceLatest` 新 Hash（仅检测与引导，不实现）。
+- `UserChoiceLatest` 新 Hash 逆向/计算（不做；改用 capture/replay 支持 HashVersion=1）。
 - GUI（Godot）全部内容（进入 v2+）。
 
 ## Delivery Notes
