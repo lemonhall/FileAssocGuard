@@ -3,6 +3,7 @@
 target/
 .godot/
 .import/
+*.uid
 
 # GUI build artifacts
 apps/gui/bin/*.exe

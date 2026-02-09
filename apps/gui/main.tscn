@@ -59,9 +59,31 @@ text = "Rule Remove"
 [node name="BtnCheck" type="Button" parent="VBox/Row2"]
 text = "Check"
 
+[node name="WatchRow" type="HBoxContainer" parent="VBox"]
+
+[node name="WatchLabel" type="Label" parent="VBox/WatchRow"]
+text = "Watch rules:"
+
+[node name="Interval" type="SpinBox" parent="VBox/WatchRow"]
+custom_minimum_size = Vector2(160, 0)
+min_value = 1.0
+max_value = 3600.0
+step = 1.0
+value = 5.0
+
+[node name="BtnStartWatch" type="Button" parent="VBox/WatchRow"]
+text = "Start"
+
+[node name="BtnStopWatch" type="Button" parent="VBox/WatchRow"]
+text = "Stop"
+disabled = true
+
+[node name="WatchStatus" type="Label" parent="VBox/WatchRow"]
+size_flags_horizontal = 3
+text = "stopped"
+
 [node name="Output" type="TextEdit" parent="VBox"]
 size_flags_vertical = 3
 placeholder_text = "Output..."
 wrap_mode = 1
 editable = false
-
