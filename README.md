@@ -86,3 +86,8 @@ cargo run -p fag-cli -- watch-rules --interval 5
 ## guard.log 在哪？
 
 默认写入：`%APPDATA%\\FileAssocGuard\\guard.log`（watch/check 检测到篡改时会追加 JSON lines）。
+
+## Godot GUI（Phase 2 早期壳子）
+
+- 构建并复制后端到 Godot 项目：`powershell -ExecutionPolicy Bypass -File scripts\\build-gui.ps1`
+- Godot 打开：`apps\\gui\\project.godot`，运行即可（当前 GUI 通过调用 `apps\\gui\\bin\\fag.exe` 工作）。

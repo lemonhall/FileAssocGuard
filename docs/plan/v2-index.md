@@ -10,6 +10,7 @@
 ## Plan Index
 
 - `docs/plan/v2-phase2-gui.md`
+- `docs/plan/v2-m1-godot-cli-shell.md`
 
 ## Traceability (v2)
 
@@ -22,4 +23,3 @@
 | REQ-104 | `docs/plan/v2-phase2-gui.md` |
 | REQ-105 | `docs/plan/v2-phase2-gui.md` |
 | REQ-106 | `docs/plan/v2-phase2-gui.md` |
-
