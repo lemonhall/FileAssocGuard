@@ -7,12 +7,27 @@ pub fn compute_user_choice_hash(
     prog_id: &str,
     regdate_hex: &str,
 ) -> String {
+    compute_user_choice_hash_with_experience(extension, sid, prog_id, regdate_hex, USER_EXPERIENCE)
+}
+
+pub fn compute_user_choice_hash_with_experience(
+    extension: &str,
+    sid: &str,
+    prog_id: &str,
+    regdate_hex: &str,
+    experience: &str,
+) -> String {
+    let input = format!("{}{}{}{}{}\0", extension, sid, prog_id, regdate_hex, experience);
+    compute_legacy_microsoft_8byte_hash(&input)
+}
+
+/// Computes the 8-byte Base64 hash used by the legacy UserChoice algorithm.
+///
+/// This is exposed for diagnostics so we can test different input compositions against
+/// observed registry hashes on real systems.
+pub fn compute_legacy_microsoft_8byte_hash(input: &str) -> String {
     use base64::Engine;
 
-    let input = format!(
-        "{}{}{}{}{}\0",
-        extension, sid, prog_id, regdate_hex, USER_EXPERIENCE
-    );
     let input = input.to_ascii_lowercase();
 
     let bytes = utf16le_bytes(&input);

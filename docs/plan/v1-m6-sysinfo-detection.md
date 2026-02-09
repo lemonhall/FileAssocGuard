@@ -2,7 +2,7 @@
 
 ## Goal
 
-实现 `sysinfo`：输出用户 SID、HashVersion、UserChoiceLatest 是否启用、UCPD 状态，并在新机制启用时给出 ViveTool 禁用指令（仅提示）。
+实现 `sysinfo`：输出用户 SID、HashVersion、UserChoiceLatest 是否启用、UCPD 状态，并在新机制启用时给出**可执行指引**（不依赖外部 exe）。
 
 ## PRD Trace
 
@@ -11,7 +11,7 @@
 ## Scope
 
 - 做：SID 获取、HashVersion 读取、UCPD 状态检测（至少给出“是否启用/是否影响媒体文件”的结论）、指引输出。
-- 不做：自动执行 ViveTool/禁用系统组件。
+- 不做：自动执行系统开关（只提示；真正的 workaround 在 M8 里提供命令）。
 
 ## Acceptance（硬 DoD）
 
@@ -20,7 +20,7 @@
   - `hash_version`
   - `user_choice_latest_enabled`（bool）
   - `ucpd_enabled`（bool 或 `unknown`，但必须可判定）
-  - `guidance`（当 latest enabled 时包含两条 vivetool 命令）
+  - `guidance`（当 latest enabled 时包含 `fag win11 disable-userchoicelatest` 指引）
 
 ## Files
 
@@ -43,7 +43,7 @@
    - Expected: 输出字段齐全
 
 4) **Green — 加入 guidance 逻辑**  
-   - 在 latest enabled 的分支输出两条 vivetool disable 指令
+   - 在 latest enabled 的分支输出 `fag win11 disable-userchoicelatest` 指引（无外部 exe）
 
 5) **Refactor（仍绿）**  
    - sysinfo 输出采用结构化（建议 JSON）并在 CLI 层提供可读渲染
@@ -51,4 +51,3 @@
 ## Risks
 
 - UCPD 检测可能需要更深入系统信息；先确保输出“unknown”时也可判定并给出解释。
-

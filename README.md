@@ -43,6 +43,8 @@ cargo run -p fag-cli -- capture-latest --ext .mp4 --name potplayer
 cargo run -p fag-cli -- apply-latest --ext .mp4 --name vlc
 cargo run -p fag-cli -- apply-latest --ext .mp4 --name potplayer
 
+# 如果输出 status=REJECTED，说明系统拒绝/回滚了本次写入：需要你去 Windows 设置里手动改回默认程序
+
 # 查看当前已保存的标签
 cargo run -p fag-cli -- captures --ext .mp4
 ```
@@ -52,6 +54,9 @@ cargo run -p fag-cli -- captures --ext .mp4
 ```powershell
 # 每 5 秒检查一次，如果被篡改就自动 apply 回去（Ctrl+C 停止）
 cargo run -p fag-cli -- watch --ext .mp4 --name vlc --interval 5
+
+# 更安全：只监控+提示，不自动改（Ctrl+C 停止）
+cargo run -p fag-cli -- watch --ext .mp4 --name vlc --interval 5 --monitor-only
 ```
 
 ### 5) 规则文件 + 多扩展名守护（推荐）
@@ -73,6 +78,9 @@ cargo run -p fag-cli -- check
 
 # 多扩展名守护（Ctrl+C 停止）
 cargo run -p fag-cli -- watch-rules --interval 5
+
+# 更安全：只监控+提示，不自动改（Ctrl+C 停止）
+cargo run -p fag-cli -- watch-rules --interval 5 --monitor-only
 ```
 
 ## captures.json 在哪？

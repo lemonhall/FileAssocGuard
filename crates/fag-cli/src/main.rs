@@ -6,7 +6,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
         eprintln!(
-            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  rules <list|add|remove> ...\n  check\n  watch-rules [--interval <seconds>]\n  watch --ext <.ext> --name <label> [--interval <seconds>]\n  sysinfo\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
+            "usage: fag <command> [args]\n\ncommands:\n  read --ext <.ext>\n  progids --ext <.ext>\n  latest --ext <.ext>\n  capture-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --name <label>\n  apply-latest --ext <.ext> --progid <ProgId> --hash <Hash>\n  captures --ext <.ext>\n  rules <list|add|remove> ...\n  check\n  watch-rules [--interval <seconds>] [--monitor-only]\n  watch --ext <.ext> --name <label> [--interval <seconds>] [--monitor-only]\n  sysinfo\n  debug-legacy-hash --ext <.ext> --sid <SID> --progid <ProgId> --regdate-hex <16hex> [--experience <str>]\n  features <status|set> ...\n  win11 disable-userchoicelatest\n  restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
         );
         std::process::exit(2);
     };
@@ -298,22 +298,32 @@ fn main() {
 
             match fag_core::registry::set_user_choice_latest_replay(&ext, &progid, &hash) {
                 Ok(()) => {
-                    let effective = match fag_core::registry::effective_progid_for_ext(&ext) {
-                        Ok(Some(s)) => json_string(&s),
-                        Ok(None) => "null".into(),
+                    let effective_raw = match fag_core::registry::effective_progid_for_ext(&ext) {
+                        Ok(v) => v,
                         Err(err) => {
                             eprintln!("warning: effective progid query failed: {}", err);
-                            "null".into()
+                            None
                         }
                     };
+                    let ok = effective_raw.as_deref() == Some(progid.as_str());
+                    let effective = effective_raw
+                        .as_deref()
+                        .map(json_string)
+                        .unwrap_or("null".into());
                     println!(
-                        "{{\"ext\":{},\"status\":\"APPLIED\",\"prog_id\":{},\"effective_progid\":{},\"source\":{}}}",
+                        "{{\"ext\":{},\"status\":{},\"prog_id\":{},\"effective_progid\":{},\"source\":{},\"hint\":{}}}",
                         json_string(&ext),
+                        json_string(if ok { "APPLIED" } else { "REJECTED" }),
                         json_string(&progid),
                         effective,
-                        json_string(&source)
+                        json_string(&source),
+                        json_string(if ok {
+                            ""
+                        } else {
+                            "系统可能拒绝/回滚了这次写入：请去 Windows 设置里手动改回默认程序；本工具会记录/提醒篡改事件。"
+                        })
                     );
-                    std::process::exit(0);
+                    std::process::exit(if ok { 0 } else { 1 });
                 }
                 Err(err) => {
                     eprintln!("apply-latest failed: {}", err);
@@ -549,11 +559,12 @@ fn main() {
         }
         "watch-rules" => {
             let mut interval_secs: u64 = 5;
+            let mut monitor_only: bool = false;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--interval" => {
                         let Some(v) = args.next() else {
-                            eprintln!("usage: fag watch-rules [--interval <seconds>]");
+                            eprintln!("usage: fag watch-rules [--interval <seconds>] [--monitor-only]");
                             std::process::exit(2);
                         };
                         interval_secs = match v.parse::<u64>() {
@@ -564,6 +575,7 @@ fn main() {
                             }
                         };
                     }
+                    "--monitor-only" => monitor_only = true,
                     _ => {}
                 }
             }
@@ -583,6 +595,7 @@ fn main() {
             struct BackoffState {
                 failures: u32,
                 next_allowed_ms: u128,
+                manual_only: bool,
             }
 
             fn backoff_seconds(failures: u32) -> u64 {
@@ -596,6 +609,28 @@ fn main() {
 
             let mut backoff: std::collections::BTreeMap<String, BackoffState> =
                 std::collections::BTreeMap::new();
+            let mut last_emitted: std::collections::BTreeMap<String, (String, Option<String>)> =
+                std::collections::BTreeMap::new();
+
+            fn should_emit(
+                last: &mut std::collections::BTreeMap<String, (String, Option<String>)>,
+                key: &str,
+                status: &str,
+                effective: &Option<String>,
+            ) -> bool {
+                match last.get(key) {
+                    Some((prev_status, prev_effective))
+                        if prev_status == status && prev_effective == effective =>
+                    {
+                        false
+                    }
+                    _ => {
+                        last.insert(key.to_string(), (status.to_string(), effective.clone()));
+                        true
+                    }
+                }
+            }
+
             let interval = std::time::Duration::from_secs(interval_secs);
             loop {
                 let now_ms = unix_time_ms();
@@ -620,7 +655,9 @@ fn main() {
                     };
 
                     if let Some(st) = backoff.get(&key) {
-                        if now_ms < st.next_allowed_ms {
+                        if st.manual_only {
+                            // still allow "ok" check below to clear state, but don't attempt apply.
+                        } else if now_ms < st.next_allowed_ms {
                             continue;
                         }
                     }
@@ -631,28 +668,40 @@ fn main() {
                     let ok = effective.as_deref() == Some(cap.prog_id.as_str());
                     if ok {
                         backoff.remove(&key);
+                        if should_emit(&mut last_emitted, &key, "OK", &effective) {
+                            let line = format!(
+                                "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
+                                unix_time_ms(),
+                                json_string(ext),
+                                json_string(label),
+                                effective.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                json_string(&cap.prog_id)
+                            );
+                            println!("{}", line);
+                        }
+                        continue;
+                    }
+
+                    let st = backoff.get(&key).copied();
+                    let manual_only_for_key = monitor_only || st.map(|s| s.manual_only).unwrap_or(false);
+
+                    if should_emit(&mut last_emitted, &key, "TAMPERED", &effective) {
                         let line = format!(
-                            "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
+                            "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{},\"mode\":{}}}",
                             unix_time_ms(),
                             json_string(ext),
                             json_string(label),
                             effective.map(|s| json_string(&s)).unwrap_or("null".into()),
-                            json_string(&cap.prog_id)
+                            json_string(&cap.prog_id),
+                            json_string(if manual_only_for_key { "MONITOR_ONLY" } else { "AUTO_RESTORE" })
                         );
                         println!("{}", line);
-                        continue;
+                        let _ = logging::append_line(&log_path, &line);
                     }
 
-                    let line = format!(
-                        "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{}}}",
-                        unix_time_ms(),
-                        json_string(ext),
-                        json_string(label),
-                        effective.map(|s| json_string(&s)).unwrap_or("null".into()),
-                        json_string(&cap.prog_id)
-                    );
-                    println!("{}", line);
-                    let _ = logging::append_line(&log_path, &line);
+                    if manual_only_for_key {
+                        continue;
+                    }
 
                     if let Err(err) = fag_core::registry::set_user_choice_latest_replay(
                         ext,
@@ -671,16 +720,18 @@ fn main() {
                         .flatten();
                     if after.as_deref() == Some(cap.prog_id.as_str()) {
                         backoff.remove(&key);
-                        let line = format!(
-                            "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
-                            unix_time_ms(),
-                            json_string(ext),
-                            json_string(label),
-                            after.map(|s| json_string(&s)).unwrap_or("null".into()),
-                            json_string(&cap.prog_id)
-                        );
-                        println!("{}", line);
-                        let _ = logging::append_line(&log_path, &line);
+                        if should_emit(&mut last_emitted, &key, "APPLIED", &after) {
+                            let line = format!(
+                                "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
+                                unix_time_ms(),
+                                json_string(ext),
+                                json_string(label),
+                                after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                json_string(&cap.prog_id)
+                            );
+                            println!("{}", line);
+                            let _ = logging::append_line(&log_path, &line);
+                        }
                     } else {
                         let failures = backoff.get(&key).map(|s| s.failures).unwrap_or(0) + 1;
                         let secs = backoff_seconds(failures);
@@ -689,19 +740,22 @@ fn main() {
                             BackoffState {
                                 failures,
                                 next_allowed_ms: now_ms.saturating_add(u128::from(secs) * 1000),
+                                manual_only: true,
                             },
                         );
-                        let line = format!(
-                            "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"REJECTED\",\"effective_progid\":{},\"target_progid\":{},\"backoff_seconds\":{},\"hint\":\"re-capture: set default app in Windows Settings, then fag capture-latest\"}}",
-                            unix_time_ms(),
-                            json_string(ext),
-                            json_string(label),
-                            after.map(|s| json_string(&s)).unwrap_or("null".into()),
-                            json_string(&cap.prog_id),
-                            secs
-                        );
-                        println!("{}", line);
-                        let _ = logging::append_line(&log_path, &line);
+                        if should_emit(&mut last_emitted, &key, "REJECTED", &after) {
+                            let line = format!(
+                                "{{\"time_unix_ms\":{},\"ext\":{},\"name\":{},\"status\":\"REJECTED\",\"effective_progid\":{},\"target_progid\":{},\"backoff_seconds\":{},\"next_mode\":\"MONITOR_ONLY\",\"hint\":\"系统拒绝/回滚了写入：后续改为只提示不自动改。建议去 Windows 设置里手动改回默认程序，然后再运行 fag capture-latest（可更新抓取）\"}}",
+                                unix_time_ms(),
+                                json_string(ext),
+                                json_string(label),
+                                after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                json_string(&cap.prog_id),
+                                secs
+                            );
+                            println!("{}", line);
+                            let _ = logging::append_line(&log_path, &line);
+                        }
                     }
                 }
 
@@ -750,10 +804,273 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        "debug-legacy-hash" => {
+            let mut ext: Option<String> = None;
+            let mut sid: Option<String> = None;
+            let mut progid: Option<String> = None;
+            let mut regdate_hex: Option<String> = None;
+            let mut experience: Option<String> = None;
+
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--ext" => ext = args.next(),
+                    "--sid" => sid = args.next(),
+                    "--progid" => progid = args.next(),
+                    "--regdate-hex" => regdate_hex = args.next(),
+                    "--experience" => experience = args.next(),
+                    _ => {}
+                }
+            }
+
+            let (Some(ext), Some(sid), Some(prog_id), Some(regdate_hex)) =
+                (ext, sid, progid, regdate_hex)
+            else {
+                eprintln!(
+                    "usage: fag debug-legacy-hash --ext <.ext> --sid <SID> --progid <ProgId> --regdate-hex <16hex> [--experience <str>]"
+                );
+                std::process::exit(2);
+            };
+
+            let exp = experience.unwrap_or_else(|| fag_core::hash::USER_EXPERIENCE.to_string());
+            let hash = fag_core::hash::compute_user_choice_hash_with_experience(
+                &ext,
+                &sid,
+                &prog_id,
+                &regdate_hex,
+                &exp,
+            );
+
+            println!(
+                "{{\"ext\":{},\"sid\":{},\"prog_id\":{},\"regdate_hex\":{},\"experience\":{},\"hash\":{}}}",
+                json_string(&ext),
+                json_string(&sid),
+                json_string(&prog_id),
+                json_string(&regdate_hex),
+                json_string(&exp),
+                json_string(&hash)
+            );
+            std::process::exit(0);
+        },
+        "features" => {
+            let Some(sub) = args.next() else {
+                eprintln!("usage: fag features <status|set> ...");
+                std::process::exit(2);
+            };
+
+            match sub.as_str() {
+                "status" => {
+                    let mut id: Option<u32> = None;
+                    let mut ty = fag_core::features::FeatureConfigurationType::Runtime;
+                    while let Some(arg) = args.next() {
+                        match arg.as_str() {
+                            "--id" => {
+                                let Some(v) = args.next() else {
+                                    eprintln!("usage: fag features status --id <number> [--type <boot|runtime>]");
+                                    std::process::exit(2);
+                                };
+                                id = v.parse::<u32>().ok();
+                            }
+                            "--type" => {
+                                let Some(v) = args.next() else {
+                                    eprintln!("usage: fag features status --id <number> [--type <boot|runtime>]");
+                                    std::process::exit(2);
+                                };
+                                ty = match v.as_str() {
+                                    "boot" => fag_core::features::FeatureConfigurationType::Boot,
+                                    "runtime" => fag_core::features::FeatureConfigurationType::Runtime,
+                                    _ => {
+                                        eprintln!("features status failed: --type must be boot or runtime");
+                                        std::process::exit(2);
+                                    }
+                                };
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let Some(id) = id else {
+                        eprintln!("usage: fag features status --id <number> [--type <boot|runtime>]");
+                        std::process::exit(2);
+                    };
+
+                    match fag_core::features::query_feature_configuration(id, ty) {
+                        Ok(cfg) => {
+                            let state = match cfg.enabled_state {
+                                fag_core::features::FeatureEnabledState::Default => "default",
+                                fag_core::features::FeatureEnabledState::Disabled => "disabled",
+                                fag_core::features::FeatureEnabledState::Enabled => "enabled",
+                            };
+                            let ty_str = match ty {
+                                fag_core::features::FeatureConfigurationType::Boot => "boot",
+                                fag_core::features::FeatureConfigurationType::Runtime => "runtime",
+                            };
+                            println!(
+                                "{{\"id\":{},\"type\":{},\"enabled_state\":{},\"priority\":{},\"variant\":{},\"variant_payload_kind\":{},\"variant_payload\":{}}}",
+                                id,
+                                json_string(ty_str),
+                                json_string(state),
+                                cfg.priority,
+                                cfg.variant,
+                                cfg.variant_payload_kind,
+                                cfg.variant_payload
+                            );
+                            std::process::exit(0);
+                        }
+                        Err(err) => {
+                            eprintln!("features status failed: {}", err);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                "set" => {
+                    let mut id: Option<u32> = None;
+                    let mut ty = fag_core::features::FeatureConfigurationType::Boot;
+                    let mut state: Option<fag_core::features::FeatureEnabledState> = None;
+                    while let Some(arg) = args.next() {
+                        match arg.as_str() {
+                            "--id" => {
+                                let Some(v) = args.next() else {
+                                    eprintln!("usage: fag features set --id <number> --state <default|disabled|enabled> [--type <boot|runtime>]");
+                                    std::process::exit(2);
+                                };
+                                id = v.parse::<u32>().ok();
+                            }
+                            "--type" => {
+                                let Some(v) = args.next() else {
+                                    eprintln!("usage: fag features set --id <number> --state <default|disabled|enabled> [--type <boot|runtime>]");
+                                    std::process::exit(2);
+                                };
+                                ty = match v.as_str() {
+                                    "boot" => fag_core::features::FeatureConfigurationType::Boot,
+                                    "runtime" => fag_core::features::FeatureConfigurationType::Runtime,
+                                    _ => {
+                                        eprintln!("features set failed: --type must be boot or runtime");
+                                        std::process::exit(2);
+                                    }
+                                };
+                            }
+                            "--state" => {
+                                let Some(v) = args.next() else {
+                                    eprintln!("usage: fag features set --id <number> --state <default|disabled|enabled> [--type <boot|runtime>]");
+                                    std::process::exit(2);
+                                };
+                                state = Some(match v.as_str() {
+                                    "default" => fag_core::features::FeatureEnabledState::Default,
+                                    "disabled" => fag_core::features::FeatureEnabledState::Disabled,
+                                    "enabled" => fag_core::features::FeatureEnabledState::Enabled,
+                                    _ => {
+                                        eprintln!("features set failed: --state must be default, disabled, or enabled");
+                                        std::process::exit(2);
+                                    }
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let (Some(id), Some(state)) = (id, state) else {
+                        eprintln!("usage: fag features set --id <number> --state <default|disabled|enabled> [--type <boot|runtime>]");
+                        std::process::exit(2);
+                    };
+
+                    match fag_core::features::set_feature_state(id, ty, state) {
+                        Ok(()) => {
+                            let ty_str = match ty {
+                                fag_core::features::FeatureConfigurationType::Boot => "boot",
+                                fag_core::features::FeatureConfigurationType::Runtime => "runtime",
+                            };
+                            let state_str = match state {
+                                fag_core::features::FeatureEnabledState::Default => "default",
+                                fag_core::features::FeatureEnabledState::Disabled => "disabled",
+                                fag_core::features::FeatureEnabledState::Enabled => "enabled",
+                            };
+                            println!(
+                                "{{\"id\":{},\"type\":{},\"status\":\"OK\",\"state\":{},\"hint\":\"boot changes usually need a reboot\"}}",
+                                id,
+                                json_string(ty_str),
+                                json_string(state_str)
+                            );
+                            std::process::exit(0);
+                        }
+                        Err(err) => {
+                            eprintln!("features set failed: {}", err);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("usage: fag features <status|set> ...");
+                    std::process::exit(2);
+                }
+            }
+        }
+        "win11" => {
+            let Some(sub) = args.next() else {
+                eprintln!("usage: fag win11 disable-userchoicelatest");
+                std::process::exit(2);
+            };
+            if sub.as_str() != "disable-userchoicelatest" {
+                eprintln!("usage: fag win11 disable-userchoicelatest");
+                std::process::exit(2);
+            }
+
+            let ids = [43229420u32, 27623730u32];
+            let mut updates = Vec::new();
+            let mut errors = Vec::new();
+            for id in ids {
+                let runtime_res = fag_core::features::set_feature_state(
+                    id,
+                    fag_core::features::FeatureConfigurationType::Runtime,
+                    fag_core::features::FeatureEnabledState::Disabled,
+                );
+                let boot_res = fag_core::features::set_feature_state(
+                    id,
+                    fag_core::features::FeatureConfigurationType::Boot,
+                    fag_core::features::FeatureEnabledState::Disabled,
+                );
+
+                let runtime_ok = runtime_res.is_ok();
+                let boot_ok = boot_res.is_ok();
+                if let Err(err) = runtime_res {
+                    errors.push(format!(
+                        "{{\"id\":{},\"type\":\"runtime\",\"error\":{}}}",
+                        id,
+                        json_string(&err.to_string())
+                    ));
+                }
+                if let Err(err) = boot_res {
+                    errors.push(format!(
+                        "{{\"id\":{},\"type\":\"boot\",\"error\":{}}}",
+                        id,
+                        json_string(&err.to_string())
+                    ));
+                }
+
+                updates.push(format!(
+                    "{{\"id\":{},\"runtime_ok\":{},\"boot_ok\":{}}}",
+                    id,
+                    if runtime_ok { "true" } else { "false" },
+                    if boot_ok { "true" } else { "false" }
+                ));
+            }
+
+            println!(
+                "{{\"status\":{},\"updates\":[{}],\"errors\":[{}],\"reboot_required\":true,\"hint\":\"after reboot, re-run sysinfo; if HashVersion became 0, legacy restore can work\"}}",
+                json_string(if errors.is_empty() { "OK" } else { "ERROR" }),
+                updates.join(","),
+                errors.join(",")
+            );
+            if errors.is_empty() {
+                std::process::exit(0);
+            } else {
+                std::process::exit(1);
+            }
+        },
         "watch" => {
             let mut ext: Option<String> = None;
             let mut name: Option<String> = None;
             let mut interval_secs: u64 = 5;
+            let mut monitor_only: bool = false;
 
             while let Some(arg) = args.next() {
                 match arg.as_str() {
@@ -776,12 +1093,13 @@ fn main() {
                             }
                         };
                     }
+                    "--monitor-only" => monitor_only = true,
                     _ => {}
                 }
             }
 
             let (Some(ext_raw), Some(name_raw)) = (ext, name) else {
-                eprintln!("usage: fag watch --ext <.ext> --name <label> [--interval <seconds>]");
+                eprintln!("usage: fag watch --ext <.ext> --name <label> [--interval <seconds>] [--monitor-only]");
                 std::process::exit(2);
             };
 
@@ -829,9 +1147,11 @@ fn main() {
             let interval = std::time::Duration::from_secs(interval_secs);
             let mut failures: u32 = 0;
             let mut next_allowed_ms: u128 = 0;
+            let mut manual_only = monitor_only;
+            let mut last_emitted: Option<(String, Option<String>)> = None;
             loop {
                 let now_ms = unix_time_ms();
-                if next_allowed_ms != 0 && now_ms < next_allowed_ms {
+                if !manual_only && next_allowed_ms != 0 && now_ms < next_allowed_ms {
                     std::thread::sleep(interval);
                     continue;
                 }
@@ -847,28 +1167,47 @@ fn main() {
                 if !needs_fix {
                     failures = 0;
                     next_allowed_ms = 0;
-                    let line = format!(
-                        "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
-                        now_ms,
-                        json_string(&ext),
-                        effective
-                            .map(|s| json_string(&s))
-                            .unwrap_or("null".into()),
-                        json_string(&target)
-                    );
-                    println!("{}", line);
+                    manual_only = monitor_only;
+                    let status = "OK".to_string();
+                    if last_emitted.as_ref().map(|(s, e)| (s, e)) != Some((&status, &effective))
+                    {
+                        let line = format!(
+                            "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"OK\",\"effective_progid\":{},\"target_progid\":{}}}",
+                            now_ms,
+                            json_string(&ext),
+                            effective
+                                .as_deref()
+                                .map(json_string)
+                                .unwrap_or("null".into()),
+                            json_string(&target)
+                        );
+                        println!("{}", line);
+                        last_emitted = Some((status, effective.clone()));
+                    }
                 } else {
-                    let line = format!(
-                        "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{}}}",
-                        now_ms,
-                        json_string(&ext),
-                        effective
-                            .map(|s| json_string(&s))
-                            .unwrap_or("null".into()),
-                        json_string(&target)
-                    );
-                    println!("{}", line);
-                    let _ = logging::append_line(&log_path, &line);
+                    let status = "TAMPERED".to_string();
+                    if last_emitted.as_ref().map(|(s, e)| (s, e)) != Some((&status, &effective))
+                    {
+                        let line = format!(
+                            "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"TAMPERED\",\"effective_progid\":{},\"target_progid\":{},\"mode\":{}}}",
+                            now_ms,
+                            json_string(&ext),
+                            effective
+                                .as_deref()
+                                .map(json_string)
+                                .unwrap_or("null".into()),
+                            json_string(&target),
+                            json_string(if manual_only { "MONITOR_ONLY" } else { "AUTO_RESTORE" })
+                        );
+                        println!("{}", line);
+                        let _ = logging::append_line(&log_path, &line);
+                        last_emitted = Some((status, effective.clone()));
+                    }
+
+                    if manual_only {
+                        std::thread::sleep(interval);
+                        continue;
+                    }
 
                     match fag_core::registry::set_user_choice_latest_replay(
                         &ext,
@@ -886,26 +1225,29 @@ fn main() {
                                     "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"APPLIED\",\"effective_progid\":{},\"target_progid\":{}}}",
                                     unix_time_ms(),
                                     json_string(&ext),
-                                    after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                    after.as_deref().map(json_string).unwrap_or("null".into()),
                                     json_string(&target)
                                 );
                                 println!("{}", line);
                                 let _ = logging::append_line(&log_path, &line);
+                                last_emitted = Some(("APPLIED".to_string(), after));
                             } else {
                                 failures += 1;
                                 let shift = failures.saturating_sub(1).min(4);
                                 let secs = (30u64.saturating_mul(1u64 << shift)).min(600);
                                 next_allowed_ms = now_ms.saturating_add(u128::from(secs) * 1000);
                                 let line = format!(
-                                    "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"REJECTED\",\"effective_progid\":{},\"target_progid\":{},\"backoff_seconds\":{},\"hint\":\"re-capture: set default app in Windows Settings, then fag capture-latest\"}}",
+                                    "{{\"time_unix_ms\":{},\"ext\":{},\"status\":\"REJECTED\",\"effective_progid\":{},\"target_progid\":{},\"backoff_seconds\":{},\"next_mode\":\"MONITOR_ONLY\",\"hint\":\"系统拒绝/回滚了写入：后续改为只提示不自动改。建议去 Windows 设置里手动改回默认程序，然后再运行 fag capture-latest（可更新抓取）\"}}",
                                     unix_time_ms(),
                                     json_string(&ext),
-                                    after.map(|s| json_string(&s)).unwrap_or("null".into()),
+                                    after.as_deref().map(json_string).unwrap_or("null".into()),
                                     json_string(&target),
                                     secs
                                 );
                                 println!("{}", line);
                                 let _ = logging::append_line(&log_path, &line);
+                                manual_only = true;
+                                last_emitted = Some(("REJECTED".to_string(), after));
                             }
                         }
                         Err(err) => {

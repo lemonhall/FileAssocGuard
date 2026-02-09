@@ -97,11 +97,11 @@
   - `fag.exe sysinfo` 输出包含：SID、HashVersion、UserChoiceLatest 是否启用、UCPD 是否启用（以及“对媒体文件是否有影响”的文字结论）。
 
 **REQ-018（UserChoiceLatest 应对）**  
-若检测到启用新机制：输出明确的 ViveTool 禁用指令（仅提示，不自动执行）。
+若检测到启用新机制：输出明确、可执行的 workaround 指引（仅提示，不自动执行），且**不依赖外部 exe**。
 
 - PRD Trace: `L2/L3`（2.3 应对策略）
 - Acceptance:
-  - 当 `HashVersion=1`（或可判定为新机制启用）时，输出包含 `vivetool /disable /id:43229420` 与 `vivetool /disable /id:27623730` 的指引，并解释风险（Hash 计算不可用）。
+  - 当 `HashVersion=1`（或可判定为新机制启用）时，输出包含内置命令 `fag.exe win11 disable-userchoicelatest` 的指引，并解释风险（需要重启；属于系统 feature 开关）。
 
 **REQ-019（日志）**  
 篡改与恢复事件必须记录到日志文件（包含时间、ext、old/new、动作、结果）。
@@ -117,7 +117,7 @@
 - Acceptance:
   - 用户通过 Windows 设置把 `.mp4` 默认程序设置为 VLC（或 PotPlayer）一次后：
     - `fag.exe capture-latest --ext .mp4 --name vlc` 能保存当前 `ProgId/Hash`（持久化到本地存档）。
-    - `fag.exe apply-latest --ext .mp4 --name vlc` 能写回并使系统生效（用 `fag.exe latest --ext .mp4` 的 `effective_progid` 验证）。
+    - `fag.exe apply-latest --ext .mp4 --name vlc` **尽力写回**；若系统拒绝导致未生效，应返回明确的“被拒绝/需 workaround”提示（例如 watch 输出 `REJECTED` + sysinfo guidance）。
 
 ### Phase 2（Godot GUI，后续版本计划覆盖）
 

@@ -59,15 +59,21 @@ pub fn read_sysinfo() -> Result<Sysinfo, SysinfoError> {
         let mut guidance = Vec::new();
         if user_choice_latest_enabled {
             guidance.push(
-                "HashVersion!=0 detected (UserChoiceLatest enabled): use capture-latest/apply-latest replay for restore."
+                "检测到 HashVersion!=0（启用 UserChoiceLatest）。在一些 Win11 版本里，如果不计算“新版 Hash”，直接写注册表可能会被系统忽略/回滚。"
                     .to_string(),
             );
             guidance.push(
-                "Optional workaround (not required if replay works): ViveTool disable + reboot."
+                "建议做法（更安全）：只监控+提示，你在 Windows 设置里手动改回默认程序。"
                     .to_string(),
             );
-            guidance.push("  vivetool /disable /id:43229420".to_string());
-            guidance.push("  vivetool /disable /id:27623730".to_string());
+            guidance.push(
+                "  fag watch-rules --monitor-only   （或单个：fag watch --ext .mp4 --name <label> --monitor-only）"
+                    .to_string(),
+            );
+            guidance.push(
+                "（高级/不推荐）如确实需要回退到旧机制：fag win11 disable-userchoicelatest（需要管理员权限 + 重启）"
+                    .to_string(),
+            );
         }
 
         Ok(Sysinfo {

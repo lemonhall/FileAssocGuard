@@ -5,7 +5,7 @@
 
 ## Version Goal
 
-交付 **Phase 1 Rust CLI MVP**：支持规则管理、检测篡改、恢复文件关联、前台守护，并在 `HashVersion=1` 场景下通过 **UserChoiceLatest capture/replay** 方式实现“可恢复”（不逆向新 Hash、不依赖外部 exe）。
+交付 **Phase 1 Rust CLI MVP**：支持规则管理、检测篡改、恢复文件关联、前台守护；在 `HashVersion=1` 场景下优先走 **UserChoiceLatest capture/replay**（不逆向新 Hash、不依赖外部 exe），若系统直接拒绝写入（REJECTED），提供 **内置、可审计** 的 Win11 workaround（禁用相关 feature flags + 重启）以回退到旧机制后再用 legacy restore。
 
 ## Milestones
 
@@ -19,6 +19,7 @@
 | M5 | `docs/plan/v1-m5-watch-notify.md` | `watch/watch-rules` 轮询+自动恢复；事件落日志 | `cargo run -p fag-cli -- watch --interval 5`; `cargo run -p fag-cli -- watch-rules --interval 5` | done (toast deferred) |
 | M6 | `docs/plan/v1-m6-sysinfo-detection.md` | `sysinfo` 输出 SID/HashVersion/UserChoiceLatest/UCPD，且指引可执行 | `cargo run -p fag-cli -- sysinfo` | done |
 | M7 | `docs/plan/v1-m7-release-hardening.md` | README + 发布产物；最小集成测试；`cargo build --release` 成功 | `cargo test`; `cargo build --release`; 手动 smoke checklist | done |
+| M8 | `docs/plan/v1-m8-win11-feature-flags.md` | 在 `HashVersion=1` 且写入被拒绝时，提供不依赖外部 exe 的 feature flags workaround（需要重启） | `cargo run -p fag-cli -- features status ...`; `cargo run -p fag-cli -- win11 disable-userchoicelatest` | done |
 
 ## Plan Index
 
@@ -30,6 +31,7 @@
 - `docs/plan/v1-m5-watch-notify.md`
 - `docs/plan/v1-m6-sysinfo-detection.md`
 - `docs/plan/v1-m7-release-hardening.md`
+- `docs/plan/v1-m8-win11-feature-flags.md`
 
 ## Traceability Matrix（v1）
 
@@ -44,7 +46,7 @@
 | REQ-015 | M5 | `watch` 轮询恢复 | `docs/plan/evidence/v1/m5-watch.md` |
 | REQ-016 | M5 | (deferred) Toast | `docs/plan/evidence/v1/m5-watch.md` |
 | REQ-017 | M6 | `sysinfo` 输出字段齐全 | `docs/plan/evidence/v1/m6-sysinfo.md` |
-| REQ-018 | M6 | `HashVersion=1` 场景输出 ViveTool 指引 | `docs/plan/evidence/v1/m6-sysinfo.md` |
+| REQ-018 | M6,M8 | `HashVersion=1` 场景输出内置 workaround 指引（无外部 exe） | `docs/plan/evidence/v1/m6-sysinfo.md`, `docs/plan/evidence/v1/m8-win11-feature-flags.md` |
 | REQ-019 | M5 | 日志格式/字段可解析 | `docs/plan/evidence/v1/m5-watch.md` |
 | REQ-020 | M3b | `capture-latest/apply-latest/latest` | `docs/plan/evidence/v1/m3b-latest-replay.md` |
 
@@ -58,7 +60,7 @@
 
 ## Known Deltas（本轮结束仍可能未满足）
 
-- `UserChoiceLatest` 新 Hash 逆向/计算（不做；改用 capture/replay 支持 HashVersion=1）。
+- `UserChoiceLatest` 新 Hash 逆向/计算（不做；优先 capture/replay；被拒绝时用 feature flags workaround 回退到旧机制）。
 - GUI（Godot）全部内容（进入 v2+）。
 
 ## Delivery Notes
