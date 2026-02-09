@@ -18,13 +18,13 @@ Example output:
 Run: `cargo run -p fag-cli -- restore --ext .mp4 --to vlc`  
 Result: Legacy restore fails on this machine because `HashVersion=1` (UserChoiceLatest enabled).
 
-Supported workaround (new core behavior):
+Workaround (temporary):
 
-- Install `SetUserFTA.exe` (Christoph Kolbicz) and point `fag` to it:
-  - set env `FAG_SETUSERFTA_EXE="C:\\path\\to\\SetUserFTA.exe"`; or
-  - pass `--setuserfta "C:\\path\\to\\SetUserFTA.exe"`
+- Disable UserChoiceLatest feature flags (ViveTool) and reboot:
+  - `vivetool /disable /id:43229420`
+  - `vivetool /disable /id:27623730`
 
-Then rerun restore and verify via:
+After reboot, rerun restore and verify via:
 
 - `cargo run -p fag-cli -- restore --ext .mp4 --to vlc`
 - `cargo run -p fag-cli -- read --ext .mp4`

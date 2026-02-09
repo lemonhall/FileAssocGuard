@@ -5,4 +5,3 @@ edition = "2021"
 
 [dependencies]
 fag-core = { path = "../fag-core" }
-tempfile = "3.12.0"

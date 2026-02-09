@@ -34,18 +34,7 @@ cargo run -p fag-cli -- restore --ext .mp4 --progid VLC.mp4
 
 你的系统如果启用了 `HashVersion=1`（UserChoiceLatest），那么我们目前的“旧算法写回”会被系统拒绝。
 
-**当前提供的解决方案**：可选使用外部工具 `SetUserFTA.exe` 作为后端，让恢复动作在 `HashVersion=1` 上也能完成。
+这部分的目标是：实现 **UserChoiceLatest 新 Hash** 的原生支持（不依赖外部 exe）。在完成之前：
 
-1) 你自己下载 `SetUserFTA.exe`（作者：Christoph Kolbicz）
-2) 配置路径（二选一）：
-
-```powershell
-# 方式 A：环境变量
-$env:FAG_SETUSERFTA_EXE = "C:\\path\\to\\SetUserFTA.exe"
-
-# 方式 B：命令行参数
-cargo run -p fag-cli -- restore --ext .mp4 --to vlc --setuserfta "C:\\path\\to\\SetUserFTA.exe"
-```
-
-> 说明：本仓库不内置/不分发 `SetUserFTA.exe`。
-
+- `restore` 会明确报错提示“未实现”；
+- 临时 workaround 是用 ViveTool 禁用相关 Feature ID 并重启（见命令输出）。

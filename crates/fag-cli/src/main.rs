@@ -1,5 +1,3 @@
-mod setuserfta;
-
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
@@ -88,21 +86,19 @@ fn main() {
             let mut ext: Option<String> = None;
             let mut progid: Option<String> = None;
             let mut to: Option<String> = None;
-            let mut setuserfta: Option<String> = None;
 
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--ext" => ext = args.next(),
                     "--progid" => progid = args.next(),
                     "--to" => to = args.next(),
-                    "--setuserfta" => setuserfta = args.next(),
                     _ => {}
                 }
             }
 
             let Some(ext) = ext else {
                 eprintln!(
-                    "usage: fag restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>) [--setuserfta <path>]"
+                    "usage: fag restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)"
                 );
                 std::process::exit(2);
             };
@@ -117,7 +113,7 @@ fn main() {
                     }
                 },
                 _ => {
-                    eprintln!("usage: fag restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>) [--setuserfta <path>]");
+                    eprintln!("usage: fag restore --ext <.ext> (--progid <ProgId> | --to <vlc|potplayer>)");
                     std::process::exit(2);
                 }
             };
@@ -135,27 +131,17 @@ fn main() {
                     std::process::exit(0);
                 }
                 Err(fag_core::registry::SetUserChoiceError::UserChoiceLatestEnabled {
-                    hash_version: _,
-                }) => match try_restore_via_setuserfta(&ext, &progid, setuserfta.as_deref()) {
-                    Ok(()) => {
-                        let verified = match fag_core::registry::read_user_choice(&ext) {
-                            Ok(Some(uc)) => uc.prog_id.as_deref() == Some(progid.as_str()),
-                            _ => false,
-                        };
-                        println!(
-                            "{{\"ext\":{},\"status\":\"RESTORED_VIA_SETUSERFTA\",\"prog_id\":{},\"verified\":{}}}",
-                            json_string(&ext),
-                            json_string(&progid),
-                            if verified { "true" } else { "false" }
-                        );
-                        std::process::exit(0);
-                    }
-                    Err(fallback_err) => {
-                        eprintln!("restore failed: UserChoiceLatest is enabled");
-                        eprintln!("fallback(SetUserFTA) failed: {}", fallback_err);
-                        std::process::exit(1);
-                    }
-                },
+                    hash_version,
+                }) => {
+                    eprintln!(
+                        "restore failed: UserChoiceLatest is enabled (HashVersion={}). Native support is not implemented yet.",
+                        hash_version
+                    );
+                    eprintln!("Workaround (temporary): disable the UserChoiceLatest feature flags via ViveTool and reboot.");
+                    eprintln!("  vivetool /disable /id:43229420");
+                    eprintln!("  vivetool /disable /id:27623730");
+                    std::process::exit(1);
+                }
                 Err(err) => {
                     eprintln!("restore failed: {}", err);
                     std::process::exit(1);
@@ -216,19 +202,4 @@ fn pick_progid_by_hint(ext: &str, hint: &str) -> Result<String, String> {
         "no ProgId matched hint '{}'. candidates (first 30): {}. Use `fag restore --ext {} --progid <one-of-these>`",
         hint, preview, ext
     ))
-}
-
-fn try_restore_via_setuserfta(
-    ext: &str,
-    progid: &str,
-    setuserfta_override: Option<&str>,
-) -> Result<(), String> {
-    let exe = setuserfta::find_setuserfta_exe(setuserfta_override).ok_or_else(|| {
-        format!(
-            "SetUserFTA.exe not found. Provide `--setuserfta <path>` or set env {}.",
-            setuserfta::ENV_SETUSERFTA_EXE
-        )
-    })?;
-
-    setuserfta::set_association(&exe, ext, progid).map_err(|e| e.to_string())
 }
