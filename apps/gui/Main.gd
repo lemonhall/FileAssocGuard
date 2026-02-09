@@ -229,7 +229,7 @@ func _refresh_rules() -> void:
 		_write(text)
 		return
 
-	var data := _parse_json(text)
+	var data = _parse_json(text)
 	if data == null or typeof(data) != TYPE_DICTIONARY:
 		rules_path_label.text = "parse error"
 		return
@@ -280,7 +280,7 @@ func _clear_events() -> void:
 	_write("Events cleared.")
 
 func _append_event_line(line: String) -> void:
-	var data := _parse_json(line)
+	var data = _parse_json(line)
 	if data == null or typeof(data) != TYPE_DICTIONARY:
 		return
 
@@ -302,7 +302,7 @@ func _append_event_line(line: String) -> void:
 func _format_time(ms: int) -> String:
 	if ms <= 0:
 		return ""
-	var d := Time.get_datetime_dict_from_unix_time(int(ms / 1000))
+	var d = Time.get_datetime_dict_from_unix_time(int(ms / 1000))
 	return "%04d-%02d-%02d %02d:%02d:%02d" % [d.year, d.month, d.day, d.hour, d.minute, d.second]
 
 func _parse_json(text: String) -> Variant:
